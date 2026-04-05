@@ -69,11 +69,54 @@ export interface SseErrorEvent {
   };
 }
 
+/** Task was cancelled */
+export interface SseCancelledEvent {
+  event: 'cancelled';
+  data: {
+    task_id: string;
+    reason?: string;
+    previous_status: TaskStatus;
+  };
+}
+
+/** Task was suspended (checkpoint saved, can resume) */
+export interface SseSuspendedEvent {
+  event: 'suspended';
+  data: {
+    task_id: string;
+    checkpoint_available: boolean;
+  };
+}
+
+/** Task was resumed from suspension */
+export interface SseResumedEvent {
+  event: 'resumed';
+  data: {
+    task_id: string;
+    from_checkpoint: boolean;
+  };
+}
+
+/** Task status changed (generic lifecycle event) */
+export interface SseStatusChangeEvent {
+  event: 'status_change';
+  data: {
+    task_id: string;
+    from: TaskStatus;
+    to: TaskStatus;
+    reason?: string;
+  };
+}
+
 export type SseEvent =
   | SseProgressEvent
   | SsePartialEvent
   | SseCompleteEvent
-  | SseErrorEvent;
+  | SseErrorEvent
+  | SseCancelledEvent
+  | SseSuspendedEvent
+  | SseResumedEvent
+  | SseStatusChangeEvent;
 
 // ---------------------------------------------------------------------------
 // SSE Encoding / Decoding

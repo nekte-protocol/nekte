@@ -74,6 +74,7 @@ describe('CapabilityRegistry', () => {
 
     const result = await registry.invoke('sentiment', { text: 'great' }, {
       budget: { max_tokens: 500, detail_level: 'compact' },
+      signal: new AbortController().signal,
     });
 
     expect(result.minimal).toBe('positive 0.9');
@@ -84,7 +85,7 @@ describe('CapabilityRegistry', () => {
   it('throws on unknown capability', async () => {
     const registry = new CapabilityRegistry();
     await expect(
-      registry.invoke('nope', {}, { budget: { max_tokens: 100, detail_level: 'compact' } }),
+      registry.invoke('nope', {}, { budget: { max_tokens: 100, detail_level: 'compact' }, signal: new AbortController().signal }),
     ).rejects.toThrow('Capability not found: nope');
   });
 
@@ -92,7 +93,7 @@ describe('CapabilityRegistry', () => {
     const registry = new CapabilityRegistry();
     registry.register('sentiment', makeConfig());
     await expect(
-      registry.invoke('sentiment', { text: 123 }, { budget: { max_tokens: 100, detail_level: 'compact' } }),
+      registry.invoke('sentiment', { text: 123 }, { budget: { max_tokens: 100, detail_level: 'compact' }, signal: new AbortController().signal }),
     ).rejects.toThrow();
   });
 });

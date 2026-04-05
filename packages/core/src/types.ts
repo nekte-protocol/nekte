@@ -162,7 +162,14 @@ export type TaskStatus =
   | 'running'
   | 'completed'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'suspended';
+
+/** Terminal states — no further transitions allowed */
+export type TerminalTaskStatus = 'completed' | 'failed' | 'cancelled';
+
+/** Active states — task is in-flight and can be acted upon */
+export type ActiveTaskStatus = 'pending' | 'accepted' | 'running' | 'suspended';
 
 export interface Task {
   /** Unique task identifier */
@@ -195,7 +202,10 @@ export type NekteMethod =
   | 'nekte.invoke'
   | 'nekte.delegate'
   | 'nekte.context'
-  | 'nekte.verify';
+  | 'nekte.verify'
+  | 'nekte.task.cancel'
+  | 'nekte.task.resume'
+  | 'nekte.task.status';
 
 export interface NekteRequest<P = unknown> {
   jsonrpc: '2.0';
@@ -268,6 +278,53 @@ export interface VerifyParams {
 }
 
 // ---------------------------------------------------------------------------
+// Task lifecycle params (cancel, resume, status)
+// ---------------------------------------------------------------------------
+
+/** Cancel a running or suspended task */
+export interface TaskCancelParams {
+  /** Task to cancel */
+  task_id: string;
+  /** Human-readable reason for cancellation */
+  reason?: string;
+}
+
+/** Resume a previously suspended task */
+export interface TaskResumeParams {
+  /** Task to resume */
+  task_id: string;
+  /** Optional budget override for the resumed execution */
+  budget?: TokenBudget;
+}
+
+/** Query current task state */
+export interface TaskStatusParams {
+  /** Task to query */
+  task_id: string;
+}
+
+/** Response for task status queries */
+export interface TaskStatusResult {
+  task_id: string;
+  status: TaskStatus;
+  /** Current progress if available */
+  progress?: { processed: number; total: number };
+  /** Whether a checkpoint exists for resume */
+  checkpoint_available: boolean;
+  /** Timestamps for lifecycle auditing */
+  created_at: number;
+  updated_at: number;
+}
+
+/** Response for cancel/resume operations */
+export interface TaskLifecycleResult {
+  task_id: string;
+  status: TaskStatus;
+  /** Previous status before the transition */
+  previous_status: TaskStatus;
+}
+
+// ---------------------------------------------------------------------------
 // Error codes
 // ---------------------------------------------------------------------------
 
@@ -280,4 +337,7 @@ export const NEKTE_ERRORS = {
   TASK_TIMEOUT: -32006,
   TASK_FAILED: -32007,
   VERIFICATION_FAILED: -32008,
+  TASK_NOT_FOUND: -32009,
+  TASK_NOT_CANCELLABLE: -32010,
+  TASK_NOT_RESUMABLE: -32011,
 } as const;

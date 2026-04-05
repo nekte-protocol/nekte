@@ -20,6 +20,9 @@ import {
   type NekteMethod,
   type NekteRequest,
   type NekteResponse,
+  type TaskCancelParams,
+  type TaskResumeParams,
+  type TaskStatusParams,
   type VerifyParams,
   NEKTE_ERRORS,
   NEKTE_VERSION,
@@ -39,11 +42,21 @@ import {
 import { noAuth, type AuthHandler } from './auth.js';
 import type { CapabilityFilterStrategy, FilterableCapability } from '@nekte/core';
 import type { SseStream } from './sse-stream.js';
+import { TaskRegistry, TaskNotFoundError, TaskNotCancellableError, TaskNotResumableError } from './task-registry.js';
 
+/**
+ * DelegateHandler — the application-layer contract for task delegation.
+ *
+ * Every handler receives an AbortSignal for cooperative cancellation.
+ * The stream adapter (SSE or gRPC) is injected by the transport layer —
+ * handlers are transport-agnostic.
+ */
 export type DelegateHandler = (
   task: import('@nekte/core').Task,
   stream: SseStream,
-  context?: ContextEnvelope,
+  context: ContextEnvelope | undefined,
+  /** AbortSignal for cooperative cancellation — always provided */
+  signal: AbortSignal,
 ) => Promise<void>;
 
 // ---------------------------------------------------------------------------
@@ -72,17 +85,19 @@ export interface NekteServerConfig {
 export class NekteServer {
   readonly config: NekteServerConfig;
   readonly registry: CapabilityRegistry;
+  /** Task lifecycle registry — tracks active tasks, enables cancel/resume */
+  readonly tasks: TaskRegistry;
   readonly log: Logger;
   private readonly auth: AuthHandler;
-  /** @internal Used by HTTP transport for SSE streaming */
+  /** @internal Used by HTTP/gRPC transport for streaming delegation */
   delegateHandler?: DelegateHandler;
   private readonly filterStrategy?: CapabilityFilterStrategy;
   private contexts = new Map<string, ContextEnvelope>();
-  private taskResults = new Map<string, unknown>();
 
   constructor(config: NekteServerConfig) {
     this.config = config;
     this.registry = new CapabilityRegistry();
+    this.tasks = new TaskRegistry();
     this.log = createLogger(`nekte:${config.agent}`, config.logLevel);
     this.auth = config.authHandler ?? noAuth();
     this.filterStrategy = config.filterStrategy;
@@ -140,6 +155,12 @@ export class NekteServer {
           return this.ok(id, await this.handleContext(params as ContextParams));
         case 'nekte.verify':
           return this.ok(id, await this.handleVerify(params as VerifyParams));
+        case 'nekte.task.cancel':
+          return this.ok(id, this.handleTaskCancel(params as TaskCancelParams));
+        case 'nekte.task.resume':
+          return this.ok(id, this.handleTaskResume(params as TaskResumeParams));
+        case 'nekte.task.status':
+          return this.ok(id, this.handleTaskStatus(params as TaskStatusParams));
         default:
           return this.error(id, -32601, `Method not found: ${method}`);
       }
@@ -212,7 +233,7 @@ export class NekteServer {
     }
 
     const budget = params.budget ?? createBudget();
-    const ctx: HandlerContext = { budget };
+    const ctx: HandlerContext = { budget, signal: new AbortController().signal };
 
     const multiLevel = await this.registry.invoke(params.cap, params.in, ctx);
     const resolved = resolveBudget(multiLevel, budget);
@@ -265,6 +286,7 @@ export class NekteServer {
       budget: params.task.budget,
       context: params.context,
       taskId: params.task.id,
+      signal: new AbortController().signal,
     });
 
     return {
@@ -287,6 +309,67 @@ export class NekteServer {
         return { id: params.envelope.id, status: 'revoked' };
       default:
         throw new Error(`Unknown context action: ${params.action}`);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Task lifecycle handlers
+  // -------------------------------------------------------------------------
+
+  private handleTaskCancel(params: TaskCancelParams): unknown {
+    try {
+      const entry = this.tasks.getOrThrow(params.task_id);
+      const previousStatus = entry.status;
+      this.tasks.cancel(params.task_id, params.reason);
+      this.log.info('Task cancelled', { taskId: params.task_id, reason: params.reason });
+      return this.tasks.toLifecycleResult(entry, previousStatus);
+    } catch (err) {
+      if (err instanceof TaskNotFoundError) {
+        throw Object.assign(new Error(err.message), {
+          nekteError: { code: NEKTE_ERRORS.TASK_NOT_FOUND, message: err.message },
+        });
+      }
+      if (err instanceof TaskNotCancellableError) {
+        throw Object.assign(new Error(err.message), {
+          nekteError: { code: NEKTE_ERRORS.TASK_NOT_CANCELLABLE, message: err.message },
+        });
+      }
+      throw err;
+    }
+  }
+
+  private handleTaskResume(params: TaskResumeParams): unknown {
+    try {
+      const entry = this.tasks.getOrThrow(params.task_id);
+      const previousStatus = entry.status;
+      this.tasks.resume(params.task_id);
+      this.log.info('Task resumed', { taskId: params.task_id });
+      return this.tasks.toLifecycleResult(entry, previousStatus);
+    } catch (err) {
+      if (err instanceof TaskNotFoundError) {
+        throw Object.assign(new Error(err.message), {
+          nekteError: { code: NEKTE_ERRORS.TASK_NOT_FOUND, message: err.message },
+        });
+      }
+      if (err instanceof TaskNotResumableError) {
+        throw Object.assign(new Error(err.message), {
+          nekteError: { code: NEKTE_ERRORS.TASK_NOT_RESUMABLE, message: err.message },
+        });
+      }
+      throw err;
+    }
+  }
+
+  private handleTaskStatus(params: TaskStatusParams): unknown {
+    try {
+      return this.tasks.toStatusResult(params.task_id);
+    } catch (err) {
+      if (err instanceof TaskNotFoundError) {
+        throw Object.assign(new Error(err.message), {
+          nekteError: { code: NEKTE_ERRORS.TASK_NOT_FOUND, message: err.message },
+        });
+      }
+      throw err;
     }
   }
 

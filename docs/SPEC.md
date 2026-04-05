@@ -2,7 +2,7 @@
 
 > **"The protocol that doesn't burn your context."**
 
-**NEKTE** — from the Greek *nektós* (joined, linked) — is an open agent-to-agent communication protocol designed with token efficiency as a fundamental architectural principle.
+**NEKTE** — from the Greek *nektos* (joined, linked) — is an open agent-to-agent communication protocol designed with token efficiency as a fundamental architectural principle.
 
 ---
 
@@ -12,7 +12,7 @@ Current AI agent communication protocols (MCP, A2A) prioritize expressiveness ov
 
 - **MCP** serializes all tool schemas into every conversation turn. With 30 tools, ~3,600 tokens per turn are burned on definitions alone — regardless of whether they're used. In enterprise scenarios (100+ tools), 72% of the context window is consumed before the model sees the first user message.
 - **A2A** (Google) solves agent-to-agent coordination but inherits the same verbose schema pattern via JSON and full Agent Cards in every interaction.
-- **Every token wasted on protocol overhead is a token stolen from the model's reasoning.** Protocol efficiency is not an optimization — it's a precondition for system intelligence.
+- **Every token wasted on protocol overhead is a token stolen from the model's reasoning.** Protocol efficiency is not an optimization — it is a precondition for system intelligence.
 
 ### Reference Data
 
@@ -42,9 +42,9 @@ Current AI agent communication protocols (MCP, A2A) prioritize expressiveness ov
 
 Agent-to-Tool. De facto standard for connecting LLMs to external tools. 10K+ servers, 97M SDK downloads. Problem: eager schema loading, immature security, unsustainable overhead at scale.
 
-### A2A (Google · Linux Foundation, 2025)
+### A2A (Google - Linux Foundation, 2025)
 
-Agent-to-Agent. 100+ partners (Salesforce, SAP, AWS). Under Linux Foundation governance. Covers discovery, delegation, peer-to-peer coordination. Enterprise critical mass. Does not address token efficiency.
+Agent-to-Agent. 100+ partners (Salesforce, SAP, AWS). Under Linux Foundation governance. Covers discovery, delegation, peer-to-peer coordination. Enterprise critical mass. Does not address token efficiency. Supports task lifecycle (cancel, resume) but with polling-based status queries.
 
 ### RTK (rtk-ai, 2026)
 
@@ -65,6 +65,8 @@ Converts MCP servers to CLI with on-demand discovery. 96-99% savings on schema t
 | Result compression | No | No | Yes (CLI) | Yes (minimal/compact/full) |
 | Context permissions | No | Limited | N/A | Envelopes with TTL |
 | Verification | No | No | N/A | Native primitive |
+| Task lifecycle | No | Cancel/resume (polling) | N/A | Cancel/suspend/resume (push) |
+| gRPC transport | No | Yes | N/A | Yes (native) |
 | MCP Bridge | N/A | N/A | N/A | @nekte/bridge |
 
 ---
@@ -128,23 +130,34 @@ Results are returned at the detail level requested by the `budget`. The same res
 
 ### 3.5 Transport Agnostic, Format Opinionated
 
-NEKTE is transport agnostic (HTTP, WebSocket, NATS, stdio) but opinionated about format:
+NEKTE is transport agnostic (HTTP, gRPC, WebSocket, NATS, stdio) but opinionated about format:
 
 - **JSON-RPC 2.0** as the envelope (compatible with existing ecosystem)
+- **gRPC with Protobuf** as the high-performance wire format (proto definitions in `@nekte/core/proto/`)
 - **Compact fields**: short field names by default, expandable only with `detail_level: "full"`
 - **No schemas on the wire by default**: only transmitted when explicitly requested
+
+### 3.6 Hexagonal Architecture
+
+The protocol implementation follows Hexagonal Architecture (Ports & Adapters):
+
+- **Domain Layer**: Types, schemas, state machines, budget resolution — no transport dependencies
+- **Ports**: `Transport` (client outbound), `DelegateHandler` (server inbound), `GrpcWritableStream` (streaming)
+- **Adapters**: HTTP/SSE, gRPC, WebSocket — each implements the same port contracts
+- **DDD**: `TaskEntry` (Aggregate Root), `TaskRegistry` (Domain Service + Repository), `CapabilityRegistry`
 
 ---
 
 ## 4. Protocol Primitives
 
-NEKTE defines five primitives. Each is designed to minimize token overhead in the common case.
+NEKTE defines eight primitives. Each is designed to minimize token overhead in the common case.
 
 ### 4.1 `nekte.discover` — Progressive Discovery
 
 Replaces A2A's "full Agent Card" pattern and MCP's "tool listing".
 
 **Request:**
+
 ```jsonc
 {
   "jsonrpc": "2.0",
@@ -161,6 +174,7 @@ Replaces A2A's "full Agent Card" pattern and MCP's "tool listing".
 ```
 
 **Response L0 (catalog):**
+
 ```jsonc
 {
   "jsonrpc": "2.0",
@@ -179,6 +193,7 @@ Replaces A2A's "full Agent Card" pattern and MCP's "tool listing".
 ```
 
 **Response L1 (summary) — only when requested:**
+
 ```jsonc
 {
   "result": {
@@ -197,6 +212,7 @@ Replaces A2A's "full Agent Card" pattern and MCP's "tool listing".
 ```
 
 **Response L2 (full schema) — only when requested:**
+
 ```jsonc
 {
   "result": {
@@ -233,6 +249,7 @@ Replaces A2A's "full Agent Card" pattern and MCP's "tool listing".
 Invokes a capability. The `version_hash` enables zero-schema invocation.
 
 **Request:**
+
 ```jsonc
 {
   "jsonrpc": "2.0",
@@ -248,6 +265,7 @@ Invokes a capability. The `version_hash` enables zero-schema invocation.
 ```
 
 **Response:**
+
 ```jsonc
 {
   "jsonrpc": "2.0",
@@ -260,6 +278,7 @@ Invokes a capability. The `version_hash` enables zero-schema invocation.
 ```
 
 **If the hash doesn't match** (capability updated):
+
 ```jsonc
 {
   "jsonrpc": "2.0",
@@ -276,11 +295,12 @@ Invokes a capability. The `version_hash` enables zero-schema invocation.
 // The agent can retry immediately with the updated schema — no extra round-trip
 ```
 
-### 4.3 `nekte.delegate` — Task Delegation
+### 4.3 `nekte.delegate` — Task Delegation with Streaming
 
-An agent delegates a complete task to another, with an explicit contract.
+An agent delegates a complete task to another, with an explicit contract. The response streams via SSE (HTTP) or server-streaming RPC (gRPC).
 
 **Request:**
+
 ```jsonc
 {
   "jsonrpc": "2.0",
@@ -293,38 +313,165 @@ An agent delegates a complete task to another, with an explicit contract.
       "timeout_ms": 30000,
       "budget": { "max_tokens": 500, "detail_level": "compact" }
     },
-    "context": {                // context envelope (see 4.4)
+    "context": {
       "data": { "reviews_url": "s3://bucket/reviews.jsonl" },
-      "permissions": ["read"],  // receiver CANNOT forward this context
-      "ttl_s": 3600             // context expires in 1 hour
+      "permissions": { "forward": false, "persist": false, "derive": true },
+      "ttl_s": 3600
     }
   }
 }
 ```
 
-**Response (can stream via SSE):**
+**Streaming Response (SSE events):**
+
+```text
+event: progress
+data: {"processed":50,"total":500,"message":"Processing batch 1"}
+
+event: progress
+data: {"processed":250,"total":500,"message":"Processing batch 5"}
+
+event: partial
+data: {"out":{"preliminary_score":0.72},"resolved_level":"compact"}
+
+event: complete
+data: {"task_id":"task-001","status":"completed","out":{"minimal":"65% positive","compact":{...},"full":{...}},"meta":{"ms":2500}}
+```
+
+**Lifecycle events (new in v0.2):**
+
+```text
+event: cancelled
+data: {"task_id":"task-001","reason":"User requested","previous_status":"running"}
+
+event: suspended
+data: {"task_id":"task-001","checkpoint_available":true}
+
+event: resumed
+data: {"task_id":"task-001","from_checkpoint":true}
+
+event: status_change
+data: {"task_id":"task-001","from":"pending","to":"accepted"}
+```
+
+**Server-side behavior:**
+
+1. Task is registered in the `TaskRegistry` with an `AbortController`
+2. Status transitions: `pending` -> `accepted` -> `running`
+3. The `DelegateHandler` receives the `AbortSignal` for cooperative cancellation
+4. On completion: `running` -> `completed`
+5. On failure: `running` -> `failed`
+6. On cancel: `AbortSignal` fires, `running` -> `cancelled`
+
+### 4.4 `nekte.task.cancel` — Task Cancellation
+
+Cancel a running or suspended task. Fires the server-side `AbortSignal`.
+
+**Request:**
+
 ```jsonc
 {
   "jsonrpc": "2.0",
-  "id": 3,
-  "result": {
+  "method": "nekte.task.cancel",
+  "id": 10,
+  "params": {
     "task_id": "task-001",
-    "status": "completed",
-    "out": {
-      "minimal": "65% positive, 20% neutral, 15% negative. Top complaint: shipping.",
-      "compact": { /* structured summary */ },
-      "full": { /* complete analysis */ }
-    },
-    "proof": {                  // verification (see 4.5)
-      "hash": "sha256:abc123",
-      "samples": 3,            // number of reviews included as evidence
-      "evidence": [ /* 3 representative reviews */ ]
-    }
+    "reason": "User requested early stop"
   }
 }
 ```
 
-### 4.4 `nekte.context` — Context Envelopes
+**Response:**
+
+```jsonc
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "result": {
+    "task_id": "task-001",
+    "status": "cancelled",
+    "previous_status": "running"
+  }
+}
+```
+
+**Error codes:**
+
+- `-32009 TASK_NOT_FOUND` — No task with this ID exists
+- `-32010 TASK_NOT_CANCELLABLE` — Task is in a terminal state (completed, failed, cancelled)
+
+### 4.5 `nekte.task.resume` — Task Resume
+
+Resume a previously suspended task. The server re-invokes the delegate handler with the saved checkpoint.
+
+**Request:**
+
+```jsonc
+{
+  "jsonrpc": "2.0",
+  "method": "nekte.task.resume",
+  "id": 11,
+  "params": {
+    "task_id": "task-001",
+    "budget": { "max_tokens": 500, "detail_level": "compact" }  // optional override
+  }
+}
+```
+
+**Response:**
+
+```jsonc
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "result": {
+    "task_id": "task-001",
+    "status": "running",
+    "previous_status": "suspended"
+  }
+}
+```
+
+**Error codes:**
+
+- `-32009 TASK_NOT_FOUND` — No task with this ID exists
+- `-32011 TASK_NOT_RESUMABLE` — Task is not in `suspended` state
+
+### 4.6 `nekte.task.status` — Task Status Query
+
+Query the current lifecycle state of a task.
+
+**Request:**
+
+```jsonc
+{
+  "jsonrpc": "2.0",
+  "method": "nekte.task.status",
+  "id": 12,
+  "params": {
+    "task_id": "task-001"
+  }
+}
+```
+
+**Response:**
+
+```jsonc
+{
+  "jsonrpc": "2.0",
+  "id": 12,
+  "result": {
+    "task_id": "task-001",
+    "status": "running",
+    "progress": { "processed": 250, "total": 500 },
+    "checkpoint_available": false,
+    "created_at": 1712300000000,
+    "updated_at": 1712300025000
+  }
+}
+```
+
+### 4.7 `nekte.context` — Context Envelopes
 
 Shared context management between agents with explicit permissions and built-in efficiency.
 
@@ -352,11 +499,12 @@ Shared context management between agents with explicit permissions and built-in 
 ```
 
 **Compression modes:**
+
 - `"none"` — raw data as-is
 - `"semantic"` — sender includes a token-optimized summary alongside full data; receiver uses the summary if budget is limited
 - `"reference"` — only a URI/reference to the data; receiver fetches on-demand if needed
 
-### 4.5 `nekte.verify` — Result Verification
+### 4.8 `nekte.verify` — Result Verification
 
 Allows an agent to request evidence that a result is reliable.
 
@@ -374,6 +522,7 @@ Allows an agent to request evidence that a result is reliable.
 ```
 
 **Response:**
+
 ```jsonc
 {
   "result": {
@@ -393,7 +542,43 @@ Allows an agent to request evidence that a result is reliable.
 
 ---
 
-## 5. Agent Card Format (Minimal)
+## 5. Task Lifecycle State Machine
+
+Tasks follow a strict state machine with validated transitions:
+
+```text
+pending -> accepted -> running -> completed
+                    -> suspended -> running (resume)
+(any non-terminal) -> cancelled | failed
+
+Terminal states: completed, failed, cancelled
+Resumable states: suspended
+Cancellable states: pending, accepted, running, suspended
+```
+
+### Valid Transitions
+
+| From | To |
+|------|-----|
+| pending | accepted, cancelled, failed |
+| accepted | running, cancelled, failed |
+| running | completed, failed, cancelled, suspended |
+| suspended | running, cancelled, failed |
+| completed | (terminal) |
+| failed | (terminal) |
+| cancelled | (terminal) |
+
+### Implementation
+
+- Each task gets an `AbortController` at registration
+- `cancel()` fires `abortController.abort()` — handlers check `signal.aborted`
+- `suspend()` saves a checkpoint (handler-specific data) for later `resume()`
+- `TaskRegistry` emits domain events on every transition
+- Stale terminal tasks are automatically cleaned up (configurable interval)
+
+---
+
+## 6. Agent Card Format (Minimal)
 
 Unlike A2A, the NEKTE Agent Card is ultra-compact by default. Detail is resolved via `nekte.discover`.
 
@@ -411,23 +596,62 @@ Unlike A2A, the NEKTE Agent Card is ultra-compact by default. Detail is resolved
 
 ---
 
-## 6. Transport
+## 7. Transport
 
 NEKTE is transport agnostic. The spec defines message format, not how they're transmitted.
 
-**Recommended transports:**
+### Supported Transports
 
-| Transport | Use case | Streaming |
-|-----------|----------|-----------|
-| HTTP POST | Simple request-response, serverless | No |
-| SSE (Server-Sent Events) | Long-running tasks, delegation | Yes |
-| WebSocket | Low latency, bidirectional | Yes |
-| NATS/JetStream | High throughput, microservices | Yes |
-| stdio | Local agents (CLI, IDE) | No |
+| Transport | Use case | Streaming | Wire format | Status |
+|-----------|----------|-----------|-------------|--------|
+| HTTP POST | Simple request-response, serverless | SSE | JSON | Stable |
+| gRPC | High-throughput, polyglot, microservices | Server-streaming | Protobuf | New |
+| WebSocket | Low latency, bidirectional | Native | JSON/MessagePack | Stable |
+| NATS/JetStream | High throughput, microservices | Yes | MessagePack | Planned |
+| stdio | Local agents (CLI, IDE) | No | JSON-RPC | Stable |
+
+### gRPC Service Definition
+
+The NEKTE gRPC service is defined in `@nekte/core/proto/nekte.proto`:
+
+```protobuf
+service Nekte {
+  rpc Discover(DiscoverRequest) returns (DiscoverResponse);
+  rpc Invoke(InvokeRequest) returns (InvokeResponse);
+  rpc Delegate(DelegateRequest) returns (stream DelegateEvent);
+  rpc Context(ContextRequest) returns (ContextResponse);
+  rpc Verify(VerifyRequest) returns (VerifyResponse);
+  rpc TaskCancel(TaskCancelRequest) returns (TaskLifecycleResponse);
+  rpc TaskResume(TaskResumeRequest) returns (TaskLifecycleResponse);
+  rpc TaskStatus(TaskStatusRequest) returns (TaskStatusResponse);
+}
+```
+
+Key design decisions:
+
+- `Delegate` uses server-streaming RPC (replaces SSE)
+- JSON-carrying fields use `bytes` to preserve dynamic schemas
+- Anti-corruption layer converts between proto messages and domain types
+- `@grpc/grpc-js` is an optional peer dependency — never bundled
+
+### Transport Port (Hexagonal)
+
+Clients use a pluggable `Transport` interface:
+
+```typescript
+interface Transport {
+  rpc<T>(method: NekteMethod, params: unknown): Promise<NekteResponse<T>>;
+  stream(method: NekteMethod, params: unknown): AsyncGenerator<SseEvent>;
+  get<T>(url: string): Promise<T>;
+  close(): Promise<void>;
+}
+```
+
+Adapters: `HttpTransport` (default), `GrpcTransport` (via `createGrpcClientTransport()`).
 
 ---
 
-## 7. The Bridge: Trojan Horse
+## 8. The Bridge: Trojan Horse
 
 Nobody is going to rewrite their 10,000+ MCP servers. But a proxy that speaks NEKTE to agents and MCP to servers changes the entire game. 90%+ savings with zero backend changes.
 
@@ -448,7 +672,25 @@ Agent  <---- NEKTE ---->  nekte-bridge  <---- MCP ---->  MCP Server
 
 ---
 
-## 8. Economic Impact
+## 9. Error Codes
+
+| Code | Name | Description |
+|------|------|-------------|
+| -32001 | VERSION_MISMATCH | Capability hash doesn't match — updated schema in error data |
+| -32002 | CAPABILITY_NOT_FOUND | No capability with this ID |
+| -32003 | BUDGET_EXCEEDED | Response would exceed the token budget |
+| -32004 | CONTEXT_EXPIRED | Context envelope TTL has expired |
+| -32005 | CONTEXT_PERMISSION_DENIED | Insufficient context permissions |
+| -32006 | TASK_TIMEOUT | Task exceeded its timeout_ms |
+| -32007 | TASK_FAILED | Task execution failed |
+| -32008 | VERIFICATION_FAILED | Result verification check failed |
+| -32009 | TASK_NOT_FOUND | No task with this ID in the registry |
+| -32010 | TASK_NOT_CANCELLABLE | Task is in a terminal state |
+| -32011 | TASK_NOT_RESUMABLE | Task is not in suspended state |
+
+---
+
+## 10. Economic Impact
 
 ### Enterprise Scenario: 50 tools x 20 turns x 1,000 conv/day
 
@@ -462,21 +704,23 @@ Agent  <---- NEKTE ---->  nekte-bridge  <---- MCP ---->  MCP Server
 
 ---
 
-## 9. Reference Implementation
+## 11. Reference Implementation
 
 | Package | Description | Status |
 |---------|-------------|--------|
-| `@nekte/core` | Types, Zod schemas, hashing, budget resolution, codec | BUILD OK |
-| `@nekte/client` | Lazy discovery, zero-schema cache, budget-aware invocation | BUILD OK |
-| `@nekte/server` | Capability registry, multi-level results, HTTP transport | BUILD OK |
-| `@nekte/bridge` | MCP-to-NEKTE proxy with cache, hashing, and compression | BUILD OK |
+| `@nekte/core` | Types, Zod schemas, hashing, budget, SSE, task state machine, gRPC type converters | Stable |
+| `@nekte/client` | Transport port, HTTP/gRPC adapters, discovery cache, streaming + cancel, task lifecycle | Stable |
+| `@nekte/server` | Capability registry, task registry (DDD), HTTP/WS/gRPC transports, auth | Stable |
+| `@nekte/bridge` | MCP-to-NEKTE proxy with cache, hashing, and compression | Stable |
+| `@nekte/cli` | CLI: discover, invoke, health, card, bench | Stable |
 
 ---
 
-## 10. Reference SDK (TypeScript)
+## 12. Reference SDK (TypeScript)
 
 ```typescript
-import { NekteClient, NekteServer } from '@nekte/core';
+import { NekteClient } from '@nekte/client';
+import { NekteServer, createGrpcTransport } from '@nekte/server';
 
 // --- Client ---
 const client = new NekteClient('https://nlp.example.com/nekte');
@@ -484,48 +728,61 @@ const client = new NekteClient('https://nlp.example.com/nekte');
 // L0: What can you do? (~24 tokens)
 const catalog = await client.discover({ level: 0 });
 
-// L1: Tell me more about sentiment (~40 tokens)
-const detail = await client.discover({
-  level: 1,
-  filter: { id: 'sentiment' }
-});
-
 // Invoke with limited budget
 const result = await client.invoke('sentiment', {
   input: { text: 'The product is great' },
-  budget: { max_tokens: 50, detail_level: 'minimal' }
+  budget: { max_tokens: 50, detail_level: 'minimal' },
 });
 
-// Second invocation — zero-schema (0 extra tokens)
-const result2 = await client.invoke('sentiment', {
-  input: { text: 'Terrible service' }
-  // Client reuses version_hash automatically
+// Delegate with streaming + cancel
+const stream = client.delegateStream({
+  id: 'task-001',
+  desc: 'Analyze 500 reviews',
+  timeout_ms: 30_000,
 });
+
+for await (const event of stream.events) {
+  if (event.event === 'progress') console.log(`${event.data.processed}/${event.data.total}`);
+  if (event.event === 'complete') console.log('Done:', event.data.out);
+  if (shouldAbort) await stream.cancel('User requested');
+}
+
+// Task lifecycle
+const status = await client.taskStatus('task-001');
+await client.close();
 
 // --- Server ---
-const server = new NekteServer({
-  agent: 'nlp-worker',
-  version: '1.2.0'
-});
+const server = new NekteServer({ agent: 'nlp-worker', version: '1.2.0' });
 
 server.capability('sentiment', {
-  handler: async (input, context) => {
-    const score = await analyzeSentiment(input.text);
-    return {
-      minimal: `${score.label} ${score.value}`,
-      compact: { label: score.label, score: score.value },
-      full: { ...score, explanation: score.reasoning }
-    };
+  inputSchema: z.object({ text: z.string() }),
+  outputSchema: z.object({ score: z.number() }),
+  category: 'nlp',
+  description: 'Analyze text sentiment',
+  handler: async (input, ctx) => {
+    if (ctx.signal.aborted) throw new Error('Cancelled');
+    return { score: 0.9 };
   },
-  schema: sentimentSchema,  // Zod schema, auto-hashed
+  toMinimal: (out) => `positive ${out.score}`,
 });
 
-server.listen(3000);
+// Streaming delegate with cooperative cancellation
+server.onDelegate(async (task, stream, context, signal) => {
+  for (let i = 0; i < 100; i++) {
+    if (signal.aborted) return;
+    stream.progress(i, 100);
+  }
+  stream.complete(task.id, { minimal: 'Done', compact: { batches: 100 } });
+});
+
+// Serve on HTTP + gRPC
+server.listen(4001);
+const grpc = await createGrpcTransport(server, { port: 4002 });
 ```
 
 ---
 
-## 11. Comparison with Existing Protocols
+## 13. Comparison with Existing Protocols
 
 | Feature | MCP | A2A (Google) | RTK | NEKTE |
 |---------|-----|-------------|-----|-------|
@@ -537,13 +794,16 @@ server.listen(3000);
 | Result compression | No | No | Yes (CLI) | Yes (minimal/compact/full) |
 | Context permissions | No | Limited | N/A | Yes (envelopes with TTL) |
 | Result verification | No | No | N/A | Yes (native primitive) |
+| Task lifecycle | No | Cancel/resume (polling) | N/A | Cancel/suspend/resume (push via SSE/gRPC) |
+| gRPC transport | No | Yes | N/A | Yes (native, with proto definitions) |
 | MCP Bridge | N/A | N/A | N/A | @nekte/bridge |
-| Transport | Streamable HTTP, stdio | HTTP, gRPC | stdio | Agnostic |
+| Transport | Streamable HTTP, stdio | HTTP, gRPC | stdio | HTTP, gRPC, WebSocket, stdio |
+| Architecture | N/A | N/A | N/A | Hexagonal + DDD |
 | Governance | Anthropic | Linux Foundation | Open source | Open source (MIT) |
 
 ---
 
-## 12. Strategic Positioning
+## 14. Strategic Positioning
 
 NEKTE **does not compete** — it complements:
 
@@ -557,18 +817,18 @@ NEKTE **does not compete** — it complements:
 
 ---
 
-## 13. Roadmap
+## 15. Roadmap
 
 | Phase | Scope | Timeline |
 |-------|-------|----------|
-| v0.2 | Spec + TypeScript SDK (`discover`, `invoke`) + MCP Bridge | Months 1-2 |
-| v0.3 | `delegate` + `context` + SSE streaming + interoperable demo | Months 3-4 |
-| v0.4 | `verify` + public efficiency benchmarks | Months 5-6 |
+| **v0.2** | Spec + TypeScript SDK + MCP Bridge + gRPC transport + task lifecycle | Months 1-2 |
+| v0.3 | `context` full implementation + multi-framework demo | Months 3-4 |
+| v0.4 | `verify` full implementation + public efficiency benchmarks | Months 5-6 |
 | v1.0 | Stable spec + Python/Go SDKs + agent registry | Months 7-9 |
 
 ---
 
-## 14. Contributing
+## 16. Contributing
 
 - **Spec**: `github.com/nekte-protocol/spec` (RFC-style, Markdown)
 - **SDK**: `github.com/nekte-protocol/sdk` (TypeScript + Zod)

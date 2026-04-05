@@ -19,3 +19,8 @@ export { NekteClient, NekteProtocolError, type NekteClientConfig } from './clien
 export { CapabilityCache, type CacheConfig } from './cache.js';
 export { type CacheStore, type CacheStoreEntry, InMemoryCacheStore } from './cache-store.js';
 export { SharedInMemoryCache, type SharedCache } from './shared-cache.js';
+
+// Transport port (hexagonal architecture)
+export { type Transport, type DelegateStream } from './transport.js';
+export { HttpTransport, type HttpTransportConfig } from './http-transport.js';
+export { createGrpcClientTransport, type GrpcClientTransportConfig } from './grpc-transport.js';

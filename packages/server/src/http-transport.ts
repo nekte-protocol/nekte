@@ -63,12 +63,30 @@ export function createHttpTransport(
           if (request.method === 'nekte.delegate' && nekteServer.delegateHandler) {
             const params = request.params as DelegateParams;
             const stream = new SseStream(res);
+
+            // Register task in lifecycle registry
+            const entry = nekteServer.tasks.register(params.task, params.context);
+            const signal = entry.abortController.signal;
+
             try {
-              await nekteServer.delegateHandler(params.task, stream, params.context);
+              nekteServer.tasks.transition(params.task.id, 'accepted');
+              nekteServer.tasks.transition(params.task.id, 'running');
+
+              await nekteServer.delegateHandler(params.task, stream, params.context, signal);
+
+              if (!signal.aborted) {
+                nekteServer.tasks.transition(params.task.id, 'completed');
+              }
               if (!stream.isClosed) stream.close();
             } catch (err) {
-              const msg = err instanceof Error ? err.message : String(err);
-              if (!stream.isClosed) stream.error(-32007, msg, params.task.id);
+              if (signal.aborted) {
+                // Cancelled via abort — stream already handled by cancel endpoint
+                if (!stream.isClosed) stream.close();
+              } else {
+                const msg = err instanceof Error ? err.message : String(err);
+                if (!stream.isClosed) stream.error(-32007, msg, params.task.id);
+                try { nekteServer.tasks.transition(params.task.id, 'failed', msg); } catch { /* already terminal */ }
+              }
             }
             return;
           }

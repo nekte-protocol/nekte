@@ -1,34 +1,30 @@
 /**
- * SSE Stream — Server-Sent Events writer for NekteServer
+ * gRPC Delegate Stream — Infrastructure Adapter
  *
- * Wraps an HTTP ServerResponse to emit typed NEKTE SSE events.
- * Used for streaming delegate results back to the client.
+ * Implements the same streaming interface as SseStream but
+ * writes proto DelegateEvent messages to a gRPC server-streaming call.
  *
- * @example
- * ```ts
- * const stream = new SseStream(res);
- * stream.progress(50, 500, 'Processing reviews...');
- * stream.partial({ preliminary_score: 0.72 });
- * stream.complete('task-001', { minimal: '72% positive', compact: {...}, full: {...} });
- * ```
+ * This adapter allows DelegateHandlers to work identically
+ * regardless of whether the transport is HTTP/SSE or gRPC.
+ *
+ * Hexagonal: Adapter for the streaming output port.
  */
 
-import type { ServerResponse } from 'node:http';
 import type { DetailLevel, MultiLevelResult, SseEvent, TaskStatus } from '@nekte/core';
-import { encodeSseEvent, SSE_CONTENT_TYPE } from '@nekte/core';
+import { toProtoDelegateEvent } from '@nekte/core';
 
-export class SseStream {
-  private res: ServerResponse;
+/** Minimal gRPC writable stream interface (no dependency on @grpc/grpc-js) */
+export interface GrpcWritableStream {
+  write(message: unknown): boolean;
+  end(): void;
+}
+
+export class GrpcDelegateStream {
+  private stream: GrpcWritableStream;
   private closed = false;
 
-  constructor(res: ServerResponse) {
-    this.res = res;
-    this.res.writeHead(200, {
-      'Content-Type': SSE_CONTENT_TYPE,
-      'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
-      'X-Accel-Buffering': 'no', // disable nginx buffering
-    });
+  constructor(stream: GrpcWritableStream) {
+    this.stream = stream;
   }
 
   /** Send a progress event */
@@ -39,7 +35,7 @@ export class SseStream {
     });
   }
 
-  /** Send a partial result (preliminary data) */
+  /** Send a partial result */
   partial(out: Record<string, unknown>, resolvedLevel?: DetailLevel): void {
     this.send({
       event: 'partial',
@@ -55,7 +51,7 @@ export class SseStream {
   ): void {
     this.send({
       event: 'complete',
-      data: { task_id: taskId, status: 'completed', out, ...(meta && { meta }) },
+      data: { task_id: taskId, status: 'completed' as const, out, ...(meta && { meta }) },
     });
     this.close();
   }
@@ -102,17 +98,18 @@ export class SseStream {
     });
   }
 
-  /** Send a raw SSE event */
+  /** Send a raw SSE event (converted to proto) */
   send(event: SseEvent): void {
     if (this.closed) return;
-    this.res.write(encodeSseEvent(event));
+    const protoEvent = toProtoDelegateEvent(event);
+    this.stream.write(protoEvent);
   }
 
-  /** Close the stream */
+  /** Close the gRPC stream */
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    this.res.end();
+    this.stream.end();
   }
 
   /** Whether the stream has been closed */

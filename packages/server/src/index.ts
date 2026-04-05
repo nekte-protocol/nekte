@@ -31,3 +31,18 @@ export { noAuth, bearerAuth, apiKeyAuth, type AuthHandler, type AuthResult } fro
 export { createHttpTransport, type HttpTransport, type HttpTransportConfig } from './http-transport.js';
 export { SseStream } from './sse-stream.js';
 export { type DelegateHandler } from './server.js';
+
+// Task lifecycle (DDD domain service + repository)
+export {
+  TaskRegistry,
+  type TaskRegistryConfig,
+  type TaskRegistryEvent,
+  type TaskRegistryListener,
+  TaskNotFoundError,
+  TaskNotCancellableError,
+  TaskNotResumableError,
+} from './task-registry.js';
+
+// gRPC transport (infrastructure adapter)
+export { createGrpcTransport, type GrpcTransport, type GrpcTransportConfig } from './grpc-transport.js';
+export { GrpcDelegateStream, type GrpcWritableStream } from './grpc-stream.js';

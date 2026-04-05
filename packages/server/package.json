@@ -25,11 +25,21 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@grpc/grpc-js": "^1.14.3",
+    "@grpc/proto-loader": "^0.8.0",
     "@nekte/client": "workspace:*",
     "@types/node": "^22.0.0",
     "@types/ws": "^8.18.1",
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
+  },
+  "peerDependencies": {
+    "@grpc/grpc-js": "^1.9.0",
+    "@grpc/proto-loader": "^0.7.0"
+  },
+  "peerDependenciesMeta": {
+    "@grpc/grpc-js": { "optional": true },
+    "@grpc/proto-loader": { "optional": true }
   },
   "license": "MIT"
 }

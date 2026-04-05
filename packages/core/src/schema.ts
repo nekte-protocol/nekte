@@ -138,12 +138,37 @@ export const VerifyParamsSchema = z.object({
 // JSON-RPC envelope
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Task lifecycle params
+// ---------------------------------------------------------------------------
+
+export const TaskCancelParamsSchema = z.object({
+  task_id: z.string().min(1),
+  reason: z.string().optional(),
+});
+
+export const TaskResumeParamsSchema = z.object({
+  task_id: z.string().min(1),
+  budget: TokenBudgetSchema.optional(),
+});
+
+export const TaskStatusParamsSchema = z.object({
+  task_id: z.string().min(1),
+});
+
+// ---------------------------------------------------------------------------
+// JSON-RPC envelope
+// ---------------------------------------------------------------------------
+
 export const NekteMethodSchema = z.enum([
   'nekte.discover',
   'nekte.invoke',
   'nekte.delegate',
   'nekte.context',
   'nekte.verify',
+  'nekte.task.cancel',
+  'nekte.task.resume',
+  'nekte.task.status',
 ]);
 
 export const NekteRequestSchema = z.object({

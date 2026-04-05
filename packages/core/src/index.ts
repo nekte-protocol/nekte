@@ -14,6 +14,8 @@ export * from './codec.js';
 export * from './logger.js';
 export * from './msgpack.js';
 export * from './sse.js';
+export * from './task.js';
+export * from './grpc-types.js';
 export * from './filtering/index.js';
 
 /** Protocol version */

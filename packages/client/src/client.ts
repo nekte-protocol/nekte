@@ -1,10 +1,14 @@
 /**
- * NekteClient — NEKTE protocol client
+ * NekteClient — NEKTE protocol client (Hexagonal Architecture)
  *
- * Connects to a NEKTE server (or bridge) with:
  * - Progressive discovery (L0 → L1 → L2 on demand)
  * - Zero-schema invocation (version hash cache)
  * - Token budget propagation
+ * - Task lifecycle management (cancel, resume, status)
+ * - Pluggable transport (HTTP, gRPC, WebSocket)
+ *
+ * All responses are strongly typed. Streaming returns a DelegateStream
+ * with built-in cancel support for natural consumption in agent loops.
  */
 
 import type {
@@ -14,21 +18,24 @@ import type {
   DelegateParams,
   DiscoverParams,
   DiscoverResult,
-  DiscoveryLevel,
   InvokeParams,
   InvokeResult,
   NekteMethod,
-  NekteRequest,
-  NekteResponse,
   SseEvent,
   Task,
-  TaskResult,
+  TaskCancelParams,
+  TaskLifecycleResult,
+  TaskResumeParams,
+  TaskStatusParams,
+  TaskStatusResult,
   TokenBudget,
   VerifyParams,
 } from '@nekte/core';
-import { createBudget, NEKTE_ERRORS, WELL_KNOWN_PATH, parseSseEvent } from '@nekte/core';
+import { createBudget, NEKTE_ERRORS, WELL_KNOWN_PATH } from '@nekte/core';
 import { CapabilityCache, type CacheConfig } from './cache.js';
 import type { SharedCache } from './shared-cache.js';
+import type { Transport, DelegateStream } from './transport.js';
+import { HttpTransport } from './http-transport.js';
 
 // ---------------------------------------------------------------------------
 // Typed error
@@ -51,6 +58,9 @@ export class NekteProtocolError extends Error {
   get isContextExpired(): boolean { return this.code === NEKTE_ERRORS.CONTEXT_EXPIRED; }
   get isTaskTimeout(): boolean { return this.code === NEKTE_ERRORS.TASK_TIMEOUT; }
   get isTaskFailed(): boolean { return this.code === NEKTE_ERRORS.TASK_FAILED; }
+  get isTaskNotFound(): boolean { return this.code === NEKTE_ERRORS.TASK_NOT_FOUND; }
+  get isTaskNotCancellable(): boolean { return this.code === NEKTE_ERRORS.TASK_NOT_CANCELLABLE; }
+  get isTaskNotResumable(): boolean { return this.code === NEKTE_ERRORS.TASK_NOT_RESUMABLE; }
 }
 
 // ---------------------------------------------------------------------------
@@ -68,6 +78,8 @@ export interface NekteClientConfig {
   headers?: Record<string, string>;
   /** Request timeout in ms. Default: 30000 */
   timeoutMs?: number;
+  /** Pluggable transport adapter. Default: HttpTransport. */
+  transport?: Transport;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,52 +89,44 @@ export interface NekteClientConfig {
 export class NekteClient {
   readonly endpoint: string;
   readonly cache: CapabilityCache;
-  private config: NekteClientConfig;
+  private readonly config: NekteClientConfig;
   private agentId: string | undefined;
-  private requestId = 0;
+  private readonly transport: Transport;
 
   constructor(endpoint: string, config?: NekteClientConfig) {
     this.endpoint = endpoint.replace(/\/$/, '');
     this.config = config ?? {};
 
-    // If shared cache is provided, use its store as the backing store
     const cacheConfig: CacheConfig = { ...config?.cache };
     if (config?.sharedCache) {
       cacheConfig.store = config.sharedCache.store();
     }
     this.cache = new CapabilityCache(cacheConfig);
+
+    this.transport = config?.transport ?? new HttpTransport({
+      endpoint: this.endpoint,
+      headers: config?.headers,
+      timeoutMs: config?.timeoutMs,
+    });
   }
 
   // -----------------------------------------------------------------------
   // Agent Card
   // -----------------------------------------------------------------------
 
-  /**
-   * Fetch the Agent Card from the well-known endpoint.
-   * Ultra-compact: ~50 tokens.
-   */
   async agentCard(): Promise<AgentCard> {
-    const res = await this.httpGet(`${this.endpoint}${WELL_KNOWN_PATH}`);
-    const card = res as AgentCard;
-    this.agentId = card.agent;
-    return card;
+    const res = await this.transport.get<AgentCard>(`${this.endpoint}${WELL_KNOWN_PATH}`);
+    this.agentId = res.agent;
+    return res;
   }
 
   // -----------------------------------------------------------------------
-  // Discovery — progressive, never eager
+  // Discovery
   // -----------------------------------------------------------------------
 
-  /**
-   * Discover capabilities at the specified level.
-   *
-   * L0 (~8 tok/cap): Just IDs, categories, and version hashes
-   * L1 (~40 tok/cap): + descriptions and cost hints
-   * L2 (~120 tok/cap): + full JSON schemas and examples
-   */
   async discover(params: DiscoverParams): Promise<DiscoverResult> {
     const result = await this.rpc<DiscoverResult>('nekte.discover', params);
 
-    // Cache all returned capabilities
     if (this.agentId) {
       for (const cap of result.caps) {
         this.cache.set(this.agentId, cap, params.level);
@@ -136,38 +140,22 @@ export class NekteClient {
     return result;
   }
 
-  /**
-   * Convenience: discover L0 catalog.
-   */
   async catalog(filter?: DiscoverParams['filter']): Promise<DiscoverResult> {
     return this.discover({ level: 0, filter });
   }
 
-  /**
-   * Convenience: get L1 summary for a specific capability.
-   */
   async describe(capId: string): Promise<DiscoverResult> {
     return this.discover({ level: 1, filter: { id: capId } });
   }
 
-  /**
-   * Convenience: get L2 full schema for a specific capability.
-   */
   async schema(capId: string): Promise<DiscoverResult> {
     return this.discover({ level: 2, filter: { id: capId } });
   }
 
   // -----------------------------------------------------------------------
-  // Invoke — zero-schema when possible
+  // Invoke
   // -----------------------------------------------------------------------
 
-  /**
-   * Invoke a capability.
-   *
-   * If a version hash is cached, sends it for zero-schema invocation.
-   * If the hash is stale (VERSION_MISMATCH), automatically retries
-   * with the updated schema — no extra round-trip needed.
-   */
   async invoke(
     capId: string,
     options: {
@@ -189,142 +177,81 @@ export class NekteClient {
     try {
       return await this.rpc<InvokeResult>('nekte.invoke', params);
     } catch (err) {
-      // Handle VERSION_MISMATCH — update cache and retry
       if (err instanceof NekteProtocolError && err.isVersionMismatch) {
         const data = err.nekteError.data as { schema?: Capability } | undefined;
         if (data?.schema) {
           this.cache.set(agentId, data.schema, 2);
         }
-
-        // Retry without hash (force fresh)
-        const retryParams: InvokeParams = {
-          cap: capId,
-          in: options.input,
-          budget,
-        };
-        return this.rpc<InvokeResult>('nekte.invoke', retryParams);
+        return this.rpc<InvokeResult>('nekte.invoke', { cap: capId, in: options.input, budget });
       }
-
       throw err;
     }
   }
 
   // -----------------------------------------------------------------------
-  // Delegate
+  // Delegate (streaming is the only path — no unary delegate)
   // -----------------------------------------------------------------------
 
   /**
-   * Delegate a task to this agent.
-   */
-  async delegate(
-    task: Omit<Task, 'budget'> & { budget?: Partial<TokenBudget> },
-    context?: ContextEnvelope,
-  ): Promise<TaskResult> {
-    const params: DelegateParams = {
-      task: {
-        ...task,
-        budget: createBudget(task.budget),
-      },
-      context,
-    };
-
-    return this.rpc<TaskResult>('nekte.delegate', params);
-  }
-
-  /**
-   * Delegate a task with SSE streaming.
-   * Returns an async iterator that yields SSE events as they arrive.
+   * Delegate a task with streaming and lifecycle control.
+   *
+   * Returns a DelegateStream: iterate `events` to consume SSE events,
+   * call `cancel()` to abort the task server-side.
    *
    * @example
    * ```ts
-   * for await (const event of client.delegateStream(task)) {
+   * const stream = client.delegateStream(task);
+   * for await (const event of stream.events) {
    *   if (event.event === 'progress') console.log(`${event.data.processed}/${event.data.total}`);
    *   if (event.event === 'complete') console.log('Done:', event.data.out);
+   *   if (shouldAbort) await stream.cancel('user requested');
    * }
    * ```
    */
-  async *delegateStream(
+  delegateStream(
     task: Omit<Task, 'budget'> & { budget?: Partial<TokenBudget> },
     context?: ContextEnvelope,
-  ): AsyncGenerator<SseEvent> {
-    const params: DelegateParams = {
-      task: {
-        ...task,
-        budget: createBudget(task.budget),
+  ): DelegateStream {
+    const fullTask: Task = {
+      ...task,
+      budget: createBudget(task.budget),
+    };
+
+    const params: DelegateParams = { task: fullTask, context };
+    const events = this.transport.stream('nekte.delegate', params);
+
+    return {
+      events,
+      taskId: fullTask.id,
+      cancel: async (reason?: string) => {
+        await this.cancelTask(fullTask.id, reason);
       },
-      context,
     };
+  }
 
-    const request: NekteRequest = {
-      jsonrpc: '2.0',
-      method: 'nekte.delegate',
-      id: ++this.requestId,
-      params,
-    };
+  // -----------------------------------------------------------------------
+  // Task Lifecycle
+  // -----------------------------------------------------------------------
 
-    const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      task.timeout_ms ?? this.config.timeoutMs ?? 60_000,
-    );
+  async cancelTask(taskId: string, reason?: string): Promise<TaskLifecycleResult> {
+    return this.rpc<TaskLifecycleResult>('nekte.task.cancel', { task_id: taskId, reason } satisfies TaskCancelParams);
+  }
 
-    try {
-      const res = await fetch(this.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...this.config.headers,
-        },
-        body: JSON.stringify(request),
-        signal: controller.signal,
-      });
+  async resumeTask(taskId: string, budget?: Partial<TokenBudget>): Promise<TaskLifecycleResult> {
+    return this.rpc<TaskLifecycleResult>('nekte.task.resume', {
+      task_id: taskId,
+      budget: budget ? createBudget(budget) : undefined,
+    } satisfies TaskResumeParams);
+  }
 
-      if (!res.ok) {
-        throw new NekteProtocolError(-32000, `HTTP ${res.status}: ${res.statusText}`);
-      }
-
-      if (!res.body) {
-        throw new NekteProtocolError(-32000, 'No response body for SSE stream');
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-
-        // SSE events are separated by double newlines
-        const parts = buffer.split('\n\n');
-        buffer = parts.pop()!; // keep incomplete part
-
-        for (const part of parts) {
-          if (!part.trim()) continue;
-          const event = parseSseEvent(part);
-          if (event) yield event;
-        }
-      }
-
-      // Flush remaining buffer
-      if (buffer.trim()) {
-        const event = parseSseEvent(buffer);
-        if (event) yield event;
-      }
-    } finally {
-      clearTimeout(timeout);
-    }
+  async taskStatus(taskId: string): Promise<TaskStatusResult> {
+    return this.rpc<TaskStatusResult>('nekte.task.status', { task_id: taskId } satisfies TaskStatusParams);
   }
 
   // -----------------------------------------------------------------------
   // Verify
   // -----------------------------------------------------------------------
 
-  /**
-   * Verify a task result.
-   */
   async verify(
     taskId: string,
     checks: VerifyParams['checks'] = ['hash', 'sample', 'source'],
@@ -342,64 +269,20 @@ export class NekteClient {
   // -----------------------------------------------------------------------
 
   private async rpc<T>(method: NekteMethod, params: unknown): Promise<T> {
-    const request: NekteRequest = {
-      jsonrpc: '2.0',
-      method,
-      id: ++this.requestId,
-      params,
-    };
+    const response = await this.transport.rpc<T>(method, params);
 
-    const response = await this.httpPost(this.endpoint, request);
-    const rpcResponse = response as NekteResponse<T>;
-
-    if (rpcResponse.error) {
+    if (response.error) {
       throw new NekteProtocolError(
-        rpcResponse.error.code,
-        rpcResponse.error.message,
-        rpcResponse.error.data,
+        response.error.code,
+        response.error.message,
+        response.error.data,
       );
     }
 
-    return rpcResponse.result as T;
+    return response.result as T;
   }
 
-  private async httpPost(url: string, body: unknown): Promise<unknown> {
-    const controller = new AbortController();
-    const timeout = setTimeout(
-      () => controller.abort(),
-      this.config.timeoutMs ?? 30_000,
-    );
-
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...this.config.headers,
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      }
-
-      return res.json();
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
-  private async httpGet(url: string): Promise<unknown> {
-    const res = await fetch(url, {
-      headers: this.config.headers,
-    });
-
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-    }
-
-    return res.json();
+  async close(): Promise<void> {
+    await this.transport.close();
   }
 }

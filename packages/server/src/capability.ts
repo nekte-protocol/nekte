@@ -23,6 +23,10 @@ export interface HandlerContext {
   budget: TokenBudget;
   context?: ContextEnvelope;
   taskId?: string;
+  /** AbortSignal for cooperative cancellation (from task lifecycle) */
+  signal: AbortSignal;
+  /** Checkpoint data from a previously suspended task (for resume) */
+  checkpoint?: Record<string, unknown>;
 }
 
 export type CapabilityHandler<TIn = unknown, TOut = unknown> = (

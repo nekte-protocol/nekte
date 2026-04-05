@@ -2,7 +2,7 @@
  * Integration test: SSE streaming for nekte.delegate
  *
  * Verifies that the server streams progress → partial → complete
- * events over SSE, and the client can consume them.
+ * events over SSE, and the client can consume them via DelegateStream.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { z } from 'zod';
@@ -27,12 +27,12 @@ beforeAll(async () => {
     handler: async (input) => ({ score: 0.9 }),
   });
 
-  // Register a streaming delegate handler
-  server.onDelegate(async (task, stream, context) => {
+  // Register a streaming delegate handler (signal is required)
+  server.onDelegate(async (task, stream, _context, signal) => {
     const total = 3;
     for (let i = 1; i <= total; i++) {
+      if (signal.aborted) return;
       stream.progress(i, total, `Step ${i}`);
-      // Simulate work
       await new Promise((r) => setTimeout(r, 10));
     }
 
@@ -45,7 +45,7 @@ beforeAll(async () => {
     }, { ms: 30 });
   });
 
-  // Start raw HTTP server
+  // Start raw HTTP server (bypassing createHttpTransport for test isolation)
   httpServer = createServer(async (req, res) => {
     if (req.url === '/.well-known/nekte.json' && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -58,15 +58,22 @@ beforeAll(async () => {
       req.on('end', async () => {
         const request = JSON.parse(body);
 
-        // Route delegate to SSE
+        // Route delegate to SSE with task registry
         if (request.method === 'nekte.delegate') {
           const params = request.params;
           const sseStream = new SseStream(res);
+          const entry = server.tasks.register(params.task, params.context);
+          const signal = entry.abortController.signal;
+
           try {
-            await (server as any).delegateHandler(params.task, sseStream, params.context);
+            server.tasks.transition(params.task.id, 'accepted');
+            server.tasks.transition(params.task.id, 'running');
+            await (server as any).delegateHandler(params.task, sseStream, params.context, signal);
+            if (!signal.aborted) server.tasks.transition(params.task.id, 'completed');
             if (!sseStream.isClosed) sseStream.close();
           } catch (err: any) {
             if (!sseStream.isClosed) sseStream.error(-32007, err.message, params.task?.id);
+            try { server.tasks.transition(params.task.id, 'failed', err.message); } catch { /* already terminal */ }
           }
           return;
         }
@@ -86,17 +93,19 @@ beforeAll(async () => {
 
 afterAll(() => {
   httpServer?.close();
+  server.tasks.dispose();
 });
 
 describe('SSE Streaming Delegate', () => {
   it('streams progress, partial, and complete events', async () => {
     const events: SseEvent[] = [];
-
-    for await (const event of client.delegateStream({
+    const stream = client.delegateStream({
       id: 'task-sse-001',
       desc: 'Test streaming task',
       timeout_ms: 5000,
-    })) {
+    });
+
+    for await (const event of stream.events) {
       events.push(event);
     }
 
@@ -116,23 +125,27 @@ describe('SSE Streaming Delegate', () => {
     expect(complete).toBeDefined();
     expect(complete!.data).toHaveProperty('task_id', 'task-sse-001');
     expect(complete!.data).toHaveProperty('status', 'completed');
+
+    // Verify task was tracked in registry
+    expect(stream.taskId).toBe('task-sse-001');
   });
 
   it('handles errors gracefully via SSE', async () => {
-    // Register an error-throwing handler temporarily
     const originalHandler = (server as any).delegateHandler;
 
-    server.onDelegate(async (task, stream) => {
+    server.onDelegate(async (_task, stream, _context, signal) => {
       stream.progress(1, 2);
       throw new Error('Something broke');
     });
 
     const events: SseEvent[] = [];
-    for await (const event of client.delegateStream({
+    const stream = client.delegateStream({
       id: 'task-sse-err',
       desc: 'This will fail',
       timeout_ms: 5000,
-    })) {
+    });
+
+    for await (const event of stream.events) {
       events.push(event);
     }
 
