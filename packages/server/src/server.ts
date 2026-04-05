@@ -5,12 +5,12 @@
  * and serve over HTTP or other transports.
  */
 
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { z } from 'zod';
 import {
   type AgentCard,
   type CapabilitySchema,
   type ContextEnvelope,
+  type ContextParams,
   type DelegateParams,
   type DiscoverParams,
   type DiscoverResult,
@@ -38,7 +38,7 @@ import {
 } from './capability.js';
 import { noAuth, type AuthHandler } from './auth.js';
 import type { CapabilityFilterStrategy, FilterableCapability } from '@nekte/core';
-import { SseStream } from './sse-stream.js';
+import type { SseStream } from './sse-stream.js';
 
 export type DelegateHandler = (
   task: import('@nekte/core').Task,
@@ -74,7 +74,8 @@ export class NekteServer {
   readonly registry: CapabilityRegistry;
   readonly log: Logger;
   private readonly auth: AuthHandler;
-  private delegateHandler?: DelegateHandler;
+  /** @internal Used by HTTP transport for SSE streaming */
+  delegateHandler?: DelegateHandler;
   private readonly filterStrategy?: CapabilityFilterStrategy;
   private contexts = new Map<string, ContextEnvelope>();
   private taskResults = new Map<string, unknown>();
@@ -136,19 +137,18 @@ export class NekteServer {
         case 'nekte.delegate':
           return this.ok(id, await this.handleDelegate(params as DelegateParams));
         case 'nekte.context':
-          return this.ok(id, await this.handleContext(params as any));
+          return this.ok(id, await this.handleContext(params as ContextParams));
         case 'nekte.verify':
           return this.ok(id, await this.handleVerify(params as VerifyParams));
         default:
           return this.error(id, -32601, `Method not found: ${method}`);
       }
-    } catch (err: any) {
-      if (err?.nekteError) {
-        return { jsonrpc: '2.0', id, error: err.nekteError };
+    } catch (err) {
+      if (err instanceof Error && 'nekteError' in err) {
+        return { jsonrpc: '2.0', id, error: (err as Error & { nekteError: NekteError }).nekteError };
       }
-      const code = typeof err?.code === 'number' ? err.code : -32000;
       const message = err instanceof Error ? err.message : String(err);
-      return this.error(id, code, message);
+      return this.error(id, -32000, message);
     }
   }
 
@@ -221,7 +221,9 @@ export class NekteServer {
       out: resolved.data as Record<string, unknown>,
       resolved_level: resolved.level,
       meta: {
-        ms: (multiLevel.full as any)?._meta?.ms,
+        ms: (multiLevel.full as Record<string, unknown> | undefined)?._meta
+          ? ((multiLevel.full as Record<string, unknown>)._meta as Record<string, unknown>).ms as number | undefined
+          : undefined,
       },
     };
   }
@@ -273,7 +275,7 @@ export class NekteServer {
   }
 
   // TODO(v0.3): Enforce TTL expiration on stored context envelopes
-  private async handleContext(params: { action: string; envelope: ContextEnvelope }): Promise<unknown> {
+  private async handleContext(params: ContextParams): Promise<unknown> {
     switch (params.action) {
       case 'share':
         this.contexts.set(params.envelope.id, params.envelope);
@@ -301,66 +303,20 @@ export class NekteServer {
   }
 
   // -------------------------------------------------------------------------
-  // HTTP transport
+  // HTTP transport (convenience — delegates to createHttpTransport)
   // -------------------------------------------------------------------------
 
   /**
    * Start an HTTP server for this NEKTE agent.
+   * Convenience wrapper around createHttpTransport().
    */
-  listen(port: number, hostname = '0.0.0.0'): Promise<void> {
-    return new Promise((resolve) => {
-      const server = createServer(async (req, res) => {
-        // Agent Card discovery
-        if (req.url === WELL_KNOWN_PATH && req.method === 'GET') {
-          const card = this.agentCard(`http://${hostname}:${port}`);
-          this.sendJson(res, 200, card);
-          return;
-        }
-
-        // NEKTE endpoint
-        if (req.method === 'POST') {
-          // Auth check
-          const authResult = await this.auth(req);
-          if (!authResult.ok) {
-            this.sendJson(res, authResult.status, { error: authResult.message });
-            return;
-          }
-
-          try {
-            const body = await this.readBody(req);
-            const request = JSON.parse(body) as NekteRequest;
-
-            // SSE streaming for delegate when handler is registered
-            if (request.method === 'nekte.delegate' && this.delegateHandler) {
-              const params = request.params as DelegateParams;
-              const stream = new SseStream(res);
-              try {
-                await this.delegateHandler(params.task, stream, params.context);
-                if (!stream.isClosed) stream.close();
-              } catch (err) {
-                const msg = err instanceof Error ? err.message : String(err);
-                if (!stream.isClosed) stream.error(-32007, msg, params.task.id);
-              }
-              return;
-            }
-
-            const response = await this.handleRequest(request);
-            this.sendJson(res, 200, response);
-          } catch (err) {
-            const message = err instanceof Error ? err.message : 'Internal error';
-            this.sendJson(res, 500, this.error(0, -32000, message));
-          }
-          return;
-        }
-
-        res.writeHead(404).end();
-      });
-
-      server.listen(port, hostname, () => {
-        this.log.info(`${this.config.agent} listening on http://${hostname}:${port}`);
-        this.log.info(`Agent Card: http://${hostname}:${port}${WELL_KNOWN_PATH}`);
-        resolve();
-      });
+  async listen(port: number, hostname = '0.0.0.0'): Promise<void> {
+    const { createHttpTransport } = await import('./http-transport.js');
+    await createHttpTransport(this, {
+      port,
+      hostname,
+      logLevel: this.config.logLevel,
+      authHandler: this.config.authHandler,
     });
   }
 
@@ -374,19 +330,5 @@ export class NekteServer {
 
   private error(id: string | number, code: number, message: string, data?: unknown): NekteResponse {
     return { jsonrpc: '2.0', id, error: { code, message, data } };
-  }
-
-  private sendJson(res: ServerResponse, status: number, data: unknown): void {
-    res.writeHead(status, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(data));
-  }
-
-  private readBody(req: IncomingMessage): Promise<string> {
-    return new Promise((resolve, reject) => {
-      let body = '';
-      req.on('data', (chunk) => (body += chunk));
-      req.on('end', () => resolve(body));
-      req.on('error', reject);
-    });
   }
 }

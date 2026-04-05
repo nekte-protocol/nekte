@@ -28,5 +28,6 @@ export {
 } from './capability.js';
 export { createWsTransport, type WsTransport, type WsTransportConfig } from './ws-transport.js';
 export { noAuth, bearerAuth, apiKeyAuth, type AuthHandler, type AuthResult } from './auth.js';
+export { createHttpTransport, type HttpTransport, type HttpTransportConfig } from './http-transport.js';
 export { SseStream } from './sse-stream.js';
 export { type DelegateHandler } from './server.js';

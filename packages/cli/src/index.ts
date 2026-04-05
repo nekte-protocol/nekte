@@ -206,7 +206,7 @@ function printCapability(cap: Capability, level: DiscoveryLevel) {
   }
   if (level >= 2 && 'input' in cap) {
     const schema = cap as CapabilitySchema;
-    const props = (schema.input as any)?.properties;
+    const props = (schema.input as Record<string, unknown>)?.properties as Record<string, unknown> | undefined;
     if (props) {
       const inputs = Object.keys(props).join(', ');
       console.log(`    input: { ${inputs} }`);

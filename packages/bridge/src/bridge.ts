@@ -19,7 +19,7 @@
  * 5. Compresses MCP results into multi-level NEKTE format
  */
 
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+// HTTP transport extracted to http-transport.ts (hexagonal architecture)
 import {
   type AgentCard,
   type DiscoverParams,
@@ -133,11 +133,12 @@ export class NekteBridge {
         default:
           return this.error(id, -32601, `Bridge supports discover and invoke. Got: ${method}`);
       }
-    } catch (err: any) {
-      if (err.nekteError) {
-        return { jsonrpc: '2.0', id, error: err.nekteError };
+    } catch (err) {
+      if (err instanceof Error && 'nekteError' in err) {
+        return { jsonrpc: '2.0', id, error: (err as Error & { nekteError: { code: number; message: string; data?: unknown } }).nekteError };
       }
-      return this.error(id, -32000, err.message ?? String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      return this.error(id, -32000, message);
     }
   }
 
@@ -230,68 +231,45 @@ export class NekteBridge {
   }
 
   // -----------------------------------------------------------------------
-  // HTTP server
+  // Public accessors (used by HTTP transport adapter)
+  // -----------------------------------------------------------------------
+
+  /** Generate the Agent Card for this bridge */
+  agentCard(port: number): AgentCard {
+    return {
+      nekte: NEKTE_VERSION,
+      agent: this.config.name ?? 'nekte-bridge',
+      endpoint: `http://localhost:${port}`,
+      caps: this.catalog.all().map((e) => e.schema.id),
+      auth: 'none',
+      budget_support: true,
+    };
+  }
+
+  /** Health check data */
+  health(): Record<string, unknown> {
+    return {
+      status: 'ok',
+      capabilities: this.catalog.all().length,
+      servers: this.config.mcpServers.length,
+      costs: this.catalog.estimateTokenCost(),
+      metrics: this.metrics.snapshot(),
+    };
+  }
+
+  // -----------------------------------------------------------------------
+  // HTTP transport (convenience — delegates to createBridgeHttpTransport)
   // -----------------------------------------------------------------------
 
   /**
    * Start the bridge HTTP server.
+   * Convenience wrapper around createBridgeHttpTransport().
    */
   async listen(port?: number): Promise<void> {
-    const p = port ?? this.config.port ?? 3100;
-
-    return new Promise((resolve) => {
-      const server = createServer(async (req, res) => {
-        // CORS headers for local development
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
-        if (req.method === 'OPTIONS') {
-          res.writeHead(204).end();
-          return;
-        }
-
-        // Agent Card
-        if (req.url === WELL_KNOWN_PATH && req.method === 'GET') {
-          this.sendJson(res, 200, this.agentCard(p));
-          return;
-        }
-
-        // Health check
-        if (req.url === '/health' && req.method === 'GET') {
-          this.sendJson(res, 200, {
-            status: 'ok',
-            capabilities: this.catalog.all().length,
-            servers: this.config.mcpServers.length,
-            costs: this.catalog.estimateTokenCost(),
-            metrics: this.metrics.snapshot(),
-          });
-          return;
-        }
-
-        // NEKTE endpoint
-        if (req.method === 'POST') {
-          try {
-            const body = await this.readBody(req);
-            const request = JSON.parse(body) as NekteRequest;
-            const response = await this.handleRequest(request);
-            this.sendJson(res, 200, response);
-          } catch (err) {
-            const message = err instanceof Error ? err.message : 'Internal error';
-            this.sendJson(res, 500, this.error(0, -32000, message));
-          }
-          return;
-        }
-
-        res.writeHead(404).end();
-      });
-
-      server.listen(p, () => {
-        this.log.info(`Bridge listening on http://localhost:${p}`);
-        this.log.info(`Agent Card: http://localhost:${p}${WELL_KNOWN_PATH}`);
-        this.log.info(`Health: http://localhost:${p}/health`);
-        resolve();
-      });
+    const { createBridgeHttpTransport } = await import('./http-transport.js');
+    await createBridgeHttpTransport(this, {
+      port: port ?? this.config.port ?? 3100,
+      logLevel: this.config.logLevel,
     });
   }
 
@@ -308,36 +286,11 @@ export class NekteBridge {
   // Helpers
   // -----------------------------------------------------------------------
 
-  private agentCard(port: number): AgentCard {
-    return {
-      nekte: NEKTE_VERSION,
-      agent: this.config.name ?? 'nekte-bridge',
-      endpoint: `http://localhost:${port}`,
-      caps: this.catalog.all().map((e) => e.schema.id),
-      auth: 'none',
-      budget_support: true,
-    };
-  }
-
   private ok(id: string | number, result: unknown): NekteResponse {
     return { jsonrpc: '2.0', id, result };
   }
 
   private error(id: string | number, code: number, message: string): NekteResponse {
     return { jsonrpc: '2.0', id, error: { code, message } };
-  }
-
-  private sendJson(res: ServerResponse, status: number, data: unknown): void {
-    res.writeHead(status, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(data));
-  }
-
-  private readBody(req: IncomingMessage): Promise<string> {
-    return new Promise((resolve, reject) => {
-      let body = '';
-      req.on('data', (chunk: string) => (body += chunk));
-      req.on('end', () => resolve(body));
-      req.on('error', reject);
-    });
   }
 }

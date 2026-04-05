@@ -17,6 +17,7 @@ import type {
   DiscoveryLevel,
   InvokeParams,
   InvokeResult,
+  NekteMethod,
   NekteRequest,
   NekteResponse,
   SseEvent,
@@ -340,10 +341,10 @@ export class NekteClient {
   // Transport
   // -----------------------------------------------------------------------
 
-  private async rpc<T>(method: string, params: unknown): Promise<T> {
+  private async rpc<T>(method: NekteMethod, params: unknown): Promise<T> {
     const request: NekteRequest = {
       jsonrpc: '2.0',
-      method: method as any,
+      method,
       id: ++this.requestId,
       params,
     };

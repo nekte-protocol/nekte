@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.mmntm.net)",
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:blog.fka.dev)",
+      "WebFetch(domain:thenewstack.io)",
+      "WebFetch(domain:boliv.substack.com)",
+      "WebFetch(domain:www.deloitte.com)",
+      "WebFetch(domain:www.scalifiai.com)",
+      "WebFetch(domain:developers.googleblog.com)",
+      "Bash(grep -rn \"as any\" packages/*/src/*.ts packages/*/src/**/*.ts)",
+      "Bash(grep -rn \"err: any\\\\|catch.*any\" packages/*/src/*.ts packages/*/src/**/*.ts)"
+    ]
+  }
+}

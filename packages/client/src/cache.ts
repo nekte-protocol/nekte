@@ -130,6 +130,11 @@ export class CapabilityCache {
   private getEntry(agentId: string, capId: string): CacheEntryData | undefined {
     const entry = this.store.get(this.key(agentId, capId));
     if (!entry) return undefined;
-    return entry.data as CacheEntryData;
+
+    const data = entry.data;
+    if (!data || typeof data !== 'object' || !('hash' in data) || !('levels' in data)) {
+      return undefined;
+    }
+    return data as CacheEntryData;
   }
 }

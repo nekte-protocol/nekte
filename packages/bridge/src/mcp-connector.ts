@@ -18,6 +18,14 @@ import type { CapabilitySchema } from '@nekte/core';
 // MCP types (subset needed for the bridge)
 // ---------------------------------------------------------------------------
 
+/** Generic JSON-RPC response from MCP server */
+interface McpJsonRpcResponse {
+  jsonrpc?: string;
+  id?: number;
+  result?: Record<string, unknown>;
+  error?: { code: number; message: string; data?: unknown };
+}
+
 export interface McpToolSchema {
   name: string;
   description?: string;
@@ -241,11 +249,9 @@ export class McpConnector {
       throw new Error(`MCP tools/list failed: ${toolsRes.status}`);
     }
 
-    const toolsData = (await toolsRes.json()) as {
-      result?: { tools?: McpToolSchema[] };
-    };
-
-    return toolsData.result?.tools ?? [];
+    const toolsData = (await toolsRes.json()) as McpJsonRpcResponse;
+    const tools = toolsData.result?.tools as McpToolSchema[] | undefined;
+    return tools ?? [];
   }
 
   private async invokeHttp(
@@ -271,9 +277,10 @@ export class McpConnector {
       throw new Error(`MCP tools/call failed: ${res.status}`);
     }
 
-    const data = (await res.json()) as { result?: unknown; error?: unknown };
+    const data = (await res.json()) as McpJsonRpcResponse;
     if (data.error) {
-      throw new Error(`MCP tool error: ${JSON.stringify(data.error)}`);
+      const msg = data.error.message ?? JSON.stringify(data.error).slice(0, 200);
+      throw new Error(`MCP tool error: ${msg}`);
     }
 
     return data.result;
@@ -308,7 +315,8 @@ export class McpConnector {
         params: {},
       });
 
-      return (toolsResult as any)?.result?.tools ?? [];
+      const response = toolsResult as McpJsonRpcResponse | undefined;
+      return (response?.result?.tools as McpToolSchema[] | undefined) ?? [];
     });
   }
 
@@ -340,7 +348,8 @@ export class McpConnector {
         params: { name: toolName, arguments: args },
       });
 
-      return (result as any)?.result;
+      const response = result as McpJsonRpcResponse | undefined;
+      return response?.result;
     });
   }
 
@@ -381,7 +390,7 @@ export class McpConnector {
 
       if (fireAndForget) return Promise.resolve(undefined);
 
-      const id = (msg as any).id;
+      const id = (msg as Record<string, unknown>).id as number;
       return new Promise((resolve, reject) => {
         pending.set(id, { resolve, reject });
         setTimeout(() => {
