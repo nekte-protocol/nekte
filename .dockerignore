@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.github
+.devcontainer
+*.md
+spec
+demo
+benchmarks
+coverage
+.env

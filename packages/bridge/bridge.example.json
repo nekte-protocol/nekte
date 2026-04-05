@@ -1,0 +1,25 @@
+{
+  "name": "my-nekte-bridge",
+  "port": 3100,
+  "refreshIntervalMs": 300000,
+  "mcpServers": [
+    {
+      "name": "github",
+      "url": "https://mcp-github.example.com/sse",
+      "category": "dev",
+      "headers": {
+        "Authorization": "Bearer gh_xxx"
+      }
+    },
+    {
+      "name": "slack",
+      "url": "https://mcp-slack.example.com/sse",
+      "category": "comms"
+    },
+    {
+      "name": "db",
+      "url": "http://localhost:8080/mcp",
+      "category": "data"
+    }
+  ]
+}
