@@ -3,21 +3,21 @@ import type { BenchmarkReport, ProtocolId } from '../../domain/report.js';
 
 export class TerminalTableRenderer implements ReportRenderer {
   render(report: BenchmarkReport): void {
-    const protocols: ProtocolId[] = ['mcp-native', 'mcp-progressive', 'mcp2cli', 'nekte'];
-    const colW = 16;
+    const protocols: ProtocolId[] = ['mcp-native', 'mcp-progressive', 'mcp2cli', 'nekte', 'nekte-cached'];
+    const colW = 14;
 
-    console.log('\n' + '='.repeat(90));
-    console.log('  NEKTE Benchmark Suite v0.2');
+    console.log('\n' + '='.repeat(100));
+    console.log('  NEKTE Benchmark Suite v0.3');
     console.log('  Seed: ' + report.seed + ' | Cost: $' + report.costPerMTok + '/MTok');
-    console.log('='.repeat(90));
+    console.log('='.repeat(100));
 
     // Header
-    const header = '  Scenario'.padEnd(28) + protocols.map((p) => p.padStart(colW)).join('');
+    const header = '  Scenario'.padEnd(22) + protocols.map((p) => p.padStart(colW)).join('');
     console.log(header);
-    console.log('  ' + '-'.repeat(86));
+    console.log('  ' + '-'.repeat(96));
 
     for (const result of report.scenarios) {
-      const row = `  ${result.scenario.name}`.padEnd(28) +
+      const row = `  ${result.scenario.name}`.padEnd(22) +
         protocols.map((p) => {
           const cost = result.costs[p];
           return cost ? String(Math.round(cost.totalTokens)).padStart(colW) : 'N/A'.padStart(colW);

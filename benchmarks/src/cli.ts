@@ -14,6 +14,7 @@ import { McpNativeCostModel } from './adapters/cost-models/mcp-native.js';
 import { McpProgressiveCostModel } from './adapters/cost-models/mcp-progressive.js';
 import { Mcp2CliCostModel } from './adapters/cost-models/mcp2cli.js';
 import { NekteCostModel } from './adapters/cost-models/nekte.js';
+import { NekteCachedCostModel } from './adapters/cost-models/nekte-cached.js';
 import { TerminalTableRenderer } from './adapters/renderers/terminal.js';
 import { JsonReportRenderer } from './adapters/renderers/json.js';
 import { MarkdownReportRenderer } from './adapters/renderers/markdown.js';
@@ -64,6 +65,7 @@ const runner = new BenchmarkRunner({
     new McpProgressiveCostModel(),
     new Mcp2CliCostModel(),
     new NekteCostModel(),
+    new NekteCachedCostModel(),
   ],
   renderers,
   seed: parseInt(getArg('seed') ?? '42'),

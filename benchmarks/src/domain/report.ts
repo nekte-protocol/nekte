@@ -4,7 +4,7 @@
 
 import type { BenchmarkScenario } from './scenario.js';
 
-export type ProtocolId = 'mcp-native' | 'mcp-progressive' | 'mcp2cli' | 'nekte';
+export type ProtocolId = 'mcp-native' | 'mcp-progressive' | 'mcp2cli' | 'nekte' | 'nekte-cached';
 
 export interface CostBreakdown {
   discoveryTokens: number;
