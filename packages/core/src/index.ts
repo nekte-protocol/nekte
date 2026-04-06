@@ -16,6 +16,7 @@ export * from './msgpack.js';
 export * from './sse.js';
 export * from './task.js';
 export * from './grpc-types.js';
+export * from './cache/index.js';
 export * from './filtering/index.js';
 
 /** Protocol version */

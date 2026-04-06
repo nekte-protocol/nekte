@@ -36,6 +36,7 @@ import { CapabilityCache, type CacheConfig } from './cache.js';
 import type { SharedCache } from './shared-cache.js';
 import type { Transport, DelegateStream } from './transport.js';
 import { HttpTransport } from './http-transport.js';
+import { RequestCoalescer } from './request-coalescer.js';
 
 // ---------------------------------------------------------------------------
 // Typed error
@@ -92,6 +93,7 @@ export class NekteClient {
   private readonly config: NekteClientConfig;
   private agentId: string | undefined;
   private readonly transport: Transport;
+  private readonly coalescer = new RequestCoalescer();
 
   constructor(endpoint: string, config?: NekteClientConfig) {
     this.endpoint = endpoint.replace(/\/$/, '');
@@ -107,6 +109,25 @@ export class NekteClient {
       endpoint: this.endpoint,
       headers: config?.headers,
       timeoutMs: config?.timeoutMs,
+    });
+
+    // Wire stale-while-revalidate: when a stale entry is accessed,
+    // trigger a background discover to refresh it at the same level.
+    // Uses the coalescer to prevent duplicate refreshes.
+    this.cache.onRevalidate((agentId, capId) => {
+      const key = `revalidate:${agentId}:${capId}`;
+      this.coalescer.coalesce(key, async () => {
+        try {
+          // Refresh at the highest level we had cached.
+          // Check L2 first, then L1, fallback to L0.
+          const level = this.cache.get(agentId, capId, 2) ? 2
+            : this.cache.get(agentId, capId, 1) ? 1
+            : 0;
+          await this.discover({ level, filter: { id: capId } });
+        } catch {
+          // Best-effort background refresh — swallow errors
+        }
+      });
     });
   }
 

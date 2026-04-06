@@ -17,7 +17,7 @@
  * ```
  */
 
-import { InMemoryCacheStore, type CacheStore, type InMemoryStoreConfig } from './cache-store.js';
+import { InMemoryCacheStore, type CacheStore, type InMemoryStoreConfig, type CacheGetResult } from './cache-store.js';
 
 // ---------------------------------------------------------------------------
 // Port
