@@ -1,0 +1,532 @@
+---
+// Custom landing page — not using Starlight layout
+const title = 'NEKTE Protocol — Token-efficient Agent Coordination';
+const description = 'Agent coordination that doesn\'t waste your context window. Progressive discovery, zero-schema invocation, budget-aware responses. Up to 99% token savings vs MCP.';
+
+const primitives = [
+  { name: 'nekte.discover', desc: 'Progressive discovery at L0/L1/L2', cost: '~8 tok/cap' },
+  { name: 'nekte.invoke', desc: 'Zero-schema invocation via version hash', cost: '0 extra' },
+  { name: 'nekte.delegate', desc: 'Task delegation with streaming', cost: 'Budget-aware' },
+  { name: 'nekte.context', desc: 'Context envelopes with permissions + TTL', cost: 'Compressed' },
+  { name: 'nekte.verify', desc: 'Result verification with proofs', cost: 'On-demand' },
+  { name: 'nekte.task.cancel', desc: 'Cancel a running or suspended task', cost: '~20 tok' },
+  { name: 'nekte.task.resume', desc: 'Resume from checkpoint', cost: '~20 tok' },
+  { name: 'nekte.task.status', desc: 'Query task lifecycle state', cost: '~30 tok' },
+];
+---
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+  <meta name="description" content={description} />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={description} />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --bg-card: #12121a;
+      --bg-code: #1a1a2e;
+      --text: #e4e4ef;
+      --text-dim: #8888aa;
+      --accent: #00f5ff;
+      --accent-dim: #00c4cc;
+      --accent-glow: rgba(0, 245, 255, 0.15);
+      --border: #2a2a3e;
+      --green: #4ade80;
+      --red: #f87171;
+      --font-mono: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-sans);
+      line-height: 1.7;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Nav */
+    nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px 24px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .nav-logo {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--accent);
+      font-family: var(--font-mono);
+      letter-spacing: -0.5px;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 28px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover {
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    /* Hero */
+    .hero {
+      padding: 100px 0 80px;
+      text-align: center;
+    }
+
+    .hero-badge {
+      display: inline-block;
+      background: var(--accent-glow);
+      color: var(--accent);
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 6px 16px;
+      border-radius: 100px;
+      border: 1px solid rgba(0, 245, 255, 0.2);
+      margin-bottom: 28px;
+      font-family: var(--font-mono);
+    }
+
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      font-weight: 800;
+      line-height: 1.15;
+      max-width: 800px;
+      margin: 0 auto 20px;
+      letter-spacing: -1px;
+    }
+
+    .hero h1 span {
+      background: linear-gradient(135deg, var(--accent), #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero p {
+      font-size: 1.15rem;
+      color: var(--text-dim);
+      max-width: 600px;
+      margin: 0 auto 40px;
+    }
+
+    .hero-ctas {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      padding: 12px 28px;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: var(--bg);
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-dim);
+      text-decoration: none;
+      transform: translateY(-1px);
+    }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--accent);
+      text-decoration: none;
+    }
+
+    /* Code block */
+    .code-section {
+      padding: 20px 0 60px;
+    }
+
+    .code-block {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px 28px;
+      max-width: 680px;
+      margin: 0 auto;
+      overflow-x: auto;
+      position: relative;
+    }
+
+    .code-block pre {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      line-height: 1.7;
+      color: var(--text);
+    }
+
+    .code-label {
+      position: absolute;
+      top: 10px;
+      right: 14px;
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+    }
+
+    .code-comment { color: #6b7280; }
+    .code-keyword { color: #c084fc; }
+    .code-string { color: #4ade80; }
+    .code-const { color: #38bdf8; }
+    .code-func { color: #fbbf24; }
+
+    /* Savings banner */
+    .savings {
+      padding: 60px 0;
+    }
+
+    .savings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 20px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .savings-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px;
+      text-align: center;
+    }
+
+    .savings-number {
+      font-size: 2.5rem;
+      font-weight: 800;
+      font-family: var(--font-mono);
+    }
+
+    .savings-green { color: var(--green); }
+    .savings-accent { color: var(--accent); }
+
+    .savings-label {
+      color: var(--text-dim);
+      font-size: 0.85rem;
+      margin-top: 6px;
+    }
+
+    /* Primitives grid */
+    .primitives {
+      padding: 80px 0;
+    }
+
+    .section-title {
+      font-size: 1.8rem;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 12px;
+    }
+
+    .section-subtitle {
+      color: var(--text-dim);
+      text-align: center;
+      margin-bottom: 48px;
+      font-size: 1.05rem;
+    }
+
+    .primitives-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+      gap: 16px;
+    }
+
+    .primitive-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      transition: border-color 0.2s;
+    }
+
+    .primitive-card:hover {
+      border-color: var(--accent);
+    }
+
+    .primitive-name {
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      color: var(--accent);
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .primitive-desc {
+      font-size: 0.88rem;
+      color: var(--text-dim);
+      margin-bottom: 10px;
+    }
+
+    .primitive-cost {
+      font-size: 0.75rem;
+      color: var(--green);
+      font-family: var(--font-mono);
+    }
+
+    /* Comparison table */
+    .comparison {
+      padding: 80px 0;
+    }
+
+    .comparison table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    .comparison th {
+      text-align: left;
+      padding: 12px 16px;
+      border-bottom: 2px solid var(--border);
+      color: var(--text-dim);
+      font-weight: 600;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .comparison td {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .comparison tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .check { color: var(--green); }
+    .cross { color: var(--red); opacity: 0.5; }
+
+    /* Bridge section */
+    .bridge {
+      padding: 80px 0;
+      text-align: center;
+    }
+
+    .bridge-diagram {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px;
+      max-width: 600px;
+      margin: 32px auto;
+      font-family: var(--font-mono);
+      font-size: 0.85rem;
+      line-height: 1.8;
+      text-align: left;
+    }
+
+    /* Footer */
+    footer {
+      padding: 40px 0;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      color: var(--text-dim);
+      font-size: 0.85rem;
+    }
+
+    footer a { color: var(--text-dim); }
+    footer a:hover { color: var(--accent); }
+
+    @media (max-width: 640px) {
+      .hero { padding: 60px 0 40px; }
+      .nav-links { gap: 16px; }
+      .savings-grid { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/" class="nav-logo">NEKTE</a>
+    <ul class="nav-links">
+      <li><a href="/getting-started/">Docs</a></li>
+      <li><a href="/protocol/overview/">Protocol</a></li>
+      <li><a href="/reference/benchmarks/">Benchmarks</a></li>
+      <li><a href="https://github.com/nekte-protocol/nekte">GitHub</a></li>
+    </ul>
+  </nav>
+
+  <section class="hero container">
+    <div class="hero-badge">v0.3 &mdash; context + verify</div>
+    <h1>Agent coordination that <span>doesn't waste your context window</span></h1>
+    <p>NEKTE is an open protocol for token-efficient agent-to-agent communication. Progressive discovery, zero-schema invocation, budget-aware responses.</p>
+    <div class="hero-ctas">
+      <a href="/getting-started/" class="btn btn-primary">Get Started</a>
+      <a href="/protocol/overview/" class="btn btn-secondary">Read the Spec</a>
+    </div>
+  </section>
+
+  <section class="code-section container">
+    <div class="code-block">
+      <span class="code-label">TypeScript</span>
+      <pre><span class="code-keyword">import</span> {'{'} <span class="code-const">NekteClient</span> {'}'} <span class="code-keyword">from</span> <span class="code-string">'@nekte/client'</span>;
+
+<span class="code-keyword">const</span> <span class="code-const">client</span> = <span class="code-keyword">new</span> <span class="code-func">NekteClient</span>(<span class="code-string">'http://localhost:4001'</span>);
+<span class="code-keyword">const</span> <span class="code-const">catalog</span> = <span class="code-keyword">await</span> client.<span class="code-func">catalog</span>();          <span class="code-comment">// ~24 tok for 3 caps</span>
+<span class="code-keyword">const</span> <span class="code-const">result</span>  = <span class="code-keyword">await</span> client.<span class="code-func">invoke</span>(<span class="code-string">'sentiment'</span>, {'{'} input: {'{'} text: <span class="code-string">'Great!'</span> {'}'} {'}'});
+console.<span class="code-func">log</span>(result.out);                         <span class="code-comment">// "positive 0.9"</span></pre>
+    </div>
+  </section>
+
+  <section class="savings container">
+    <div class="savings-grid">
+      <div class="savings-card">
+        <div class="savings-number savings-green">-99%</div>
+        <div class="savings-label">Token savings vs MCP<br />(100 tools)</div>
+      </div>
+      <div class="savings-card">
+        <div class="savings-number savings-accent">8</div>
+        <div class="savings-label">Tokens per capability<br />(L0 discovery)</div>
+      </div>
+      <div class="savings-card">
+        <div class="savings-number savings-green">$10,744</div>
+        <div class="savings-label">Monthly savings<br />(enterprise, 50 tools)</div>
+      </div>
+      <div class="savings-card">
+        <div class="savings-number savings-accent">0</div>
+        <div class="savings-label">Extra tokens for<br />cached invocations</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="primitives container">
+    <h2 class="section-title">8 Primitives. Minimal Overhead.</h2>
+    <p class="section-subtitle">Every primitive is designed to minimize token cost in the common case.</p>
+    <div class="primitives-grid">
+      {primitives.map((p) => (
+        <div class="primitive-card">
+          <div class="primitive-name">{p.name}</div>
+          <div class="primitive-desc">{p.desc}</div>
+          <div class="primitive-cost">{p.cost}</div>
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <section class="comparison container">
+    <h2 class="section-title">How NEKTE Compares</h2>
+    <p class="section-subtitle">NEKTE complements existing protocols &mdash; it does not replace them.</p>
+    <table>
+      <thead>
+        <tr>
+          <th>Feature</th>
+          <th>MCP</th>
+          <th>A2A</th>
+          <th>NEKTE</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Progressive discovery</td>
+          <td class="cross">No</td>
+          <td class="cross">No</td>
+          <td class="check">L0/L1/L2</td>
+        </tr>
+        <tr>
+          <td>Zero-schema invocation</td>
+          <td class="cross">No</td>
+          <td class="cross">No</td>
+          <td class="check">Version hash</td>
+        </tr>
+        <tr>
+          <td>Native token budget</td>
+          <td class="cross">No</td>
+          <td class="cross">No</td>
+          <td class="check">First-class</td>
+        </tr>
+        <tr>
+          <td>Result compression</td>
+          <td class="cross">No</td>
+          <td class="cross">No</td>
+          <td class="check">3 levels</td>
+        </tr>
+        <tr>
+          <td>Task lifecycle (push)</td>
+          <td class="cross">No</td>
+          <td>Polling</td>
+          <td class="check">Push (SSE/gRPC)</td>
+        </tr>
+        <tr>
+          <td>gRPC transport</td>
+          <td class="cross">No</td>
+          <td class="check">Yes</td>
+          <td class="check">Native</td>
+        </tr>
+        <tr>
+          <td>MCP bridge</td>
+          <td>N/A</td>
+          <td class="cross">No</td>
+          <td class="check">@nekte/bridge</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="bridge container">
+    <h2 class="section-title">The Bridge: Zero Migration</h2>
+    <p class="section-subtitle">Don't rewrite your 10,000+ MCP servers. Drop the bridge in front.</p>
+    <div class="bridge-diagram">
+      <span class="code-const">Agent</span>  &lt;-- <span class="code-accent" style="color: var(--accent)">NEKTE</span> --&gt;  <span class="code-func">nekte-bridge</span>  &lt;-- MCP --&gt;  <span class="code-const">MCP Server(s)</span><br />
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;|<br />
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment">cache + hash</span><br />
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="code-comment">+ compression</span><br />
+      <br />
+      <span style="color: var(--green)">90%+ token savings. Zero backend changes. Day 1.</span>
+    </div>
+    <div style="margin-top: 32px;">
+      <a href="/getting-started/typescript/#5-bridge-an-mcp-server" class="btn btn-secondary">Bridge Setup Guide</a>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container">
+      <p>MIT License &mdash; <a href="https://barontech.io">BaronTech Labs</a> &mdash; <a href="https://github.com/nekte-protocol/nekte">GitHub</a></p>
+    </div>
+  </footer>
+</body>
+</html>

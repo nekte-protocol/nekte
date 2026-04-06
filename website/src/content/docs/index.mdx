@@ -1,0 +1,77 @@
+---
+title: Welcome to NEKTE
+description: Token-efficient agent-to-agent coordination protocol
+template: doc
+hero:
+  tagline: Agent coordination that doesn't waste your context window.
+  actions:
+    - text: Get Started
+      link: /getting-started/
+      icon: right-arrow
+      variant: primary
+    - text: Read the Spec
+      link: /protocol/overview/
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+## What is NEKTE?
+
+**NEKTE** *(from Greek nektos -- joined, linked)* is an open agent-to-agent coordination protocol designed with **token efficiency as a first-class architectural principle**.
+
+Current protocols like MCP serialize all tool schemas into every conversation turn. With 30 tools, that is roughly 3,600 tokens per turn burned on definitions alone. At enterprise scale (100+ tools), **72% of the context window is consumed before the model reads a single user message**.
+
+> Every token wasted on protocol overhead is a token stolen from the model's reasoning.
+
+NEKTE solves this with 8 primitives that achieve **up to 99% token savings** compared to MCP.
+
+## Key Features
+
+<CardGrid stagger>
+  <Card title="Progressive Discovery" icon="magnifier">
+    Three resolution levels (L0/L1/L2). Agents fetch only what they need: a catalog at 8 tokens per capability, or full schemas at 120.
+  </Card>
+  <Card title="Zero-Schema Invocation" icon="rocket">
+    Version hashes let agents invoke capabilities without re-sending schemas. If the hash matches, zero extra tokens are spent.
+  </Card>
+  <Card title="Token Budget" icon="setting">
+    Every message includes a budget field. Receivers adapt response granularity to minimal, compact, or full detail.
+  </Card>
+  <Card title="Task Lifecycle" icon="list-format">
+    Cancel, suspend, and resume long-running tasks with AbortSignal support and checkpoint persistence.
+  </Card>
+  <Card title="MCP Bridge" icon="puzzle">
+    Drop `@nekte/bridge` in front of existing MCP servers for 90%+ token savings with zero backend changes.
+  </Card>
+  <Card title="Multi-Transport" icon="laptop">
+    HTTP/SSE, gRPC, WebSocket, and stdio -- same API, swappable adapters via hexagonal architecture.
+  </Card>
+</CardGrid>
+
+## Quick Start
+
+```bash
+pnpm add @nekte/client @nekte/server
+```
+
+```typescript
+import { NekteClient } from '@nekte/client';
+
+const client = new NekteClient('http://localhost:4001');
+const catalog = await client.catalog();        // ~24 tokens for 3 caps
+const result = await client.invoke('sentiment', {
+  input: { text: 'Great product!' },
+  budget: { max_tokens: 50, detail_level: 'minimal' },
+});
+```
+
+## Token Savings at a Glance
+
+| Scenario | MCP | NEKTE | Savings |
+|----------|-----|-------|---------|
+| 5 tools | 3,025 tok | 345 tok | **-89%** |
+| 30 tools | 54,450 tok | 1,155 tok | **-98%** |
+| 100 tools | 302,500 tok | 2,325 tok | **-99%** |
+
+**Enterprise impact** (50 tools x 20 turns x 1,000 conv/day): MCP costs $10,890/month. NEKTE costs $146/month. That is $10,744 saved monthly.

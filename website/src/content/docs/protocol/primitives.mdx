@@ -1,0 +1,406 @@
+---
+title: Protocol Primitives
+description: The 8 NEKTE primitives with JSON examples
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+NEKTE defines eight primitives. Each is designed to minimize token overhead in the common case.
+
+| Primitive | Purpose | Token Cost |
+|-----------|---------|------------|
+| `nekte.discover` | Progressive capability discovery (L0/L1/L2) | ~8 tok/cap (L0) |
+| `nekte.invoke` | Zero-schema invocation via version hash | 0 extra tokens |
+| `nekte.delegate` | Task delegation with streaming + lifecycle | Budget-aware |
+| `nekte.context` | Context envelopes with permissions + TTL | Compressed |
+| `nekte.verify` | Result verification with proofs | On-demand |
+| `nekte.task.cancel` | Cancel a running/suspended task | ~20 tokens |
+| `nekte.task.resume` | Resume a suspended task from checkpoint | ~20 tokens |
+| `nekte.task.status` | Query task lifecycle state | ~30 tokens |
+
+---
+
+## 1. `nekte.discover` -- Progressive Discovery
+
+Replaces MCP's "tool listing" and A2A's "full Agent Card" pattern. Agents request only the resolution level they need.
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "nekte.discover",
+  "id": 1,
+  "params": {
+    "level": 0,
+    "filter": {
+      "category": "nlp",
+      "query": "sentiment"
+    }
+  }
+}
+```
+
+### Response L0 (Catalog)
+
+The lightest response -- just names, categories, and version hashes.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "agent": "nlp-worker",
+    "v": "1.2.0",
+    "caps": [
+      { "id": "sentiment", "cat": "nlp", "h": "a1b2c3d4" },
+      { "id": "summarize", "cat": "nlp", "h": "e5f6g7h8" },
+      { "id": "translate", "cat": "nlp", "h": "i9j0k1l2" }
+    ]
+  }
+}
+```
+
+<Aside>Total cost: ~24 tokens for 3 capabilities. MCP would spend ~363 tokens for the same three tools.</Aside>
+
+### Response L1 (Summary)
+
+Descriptions and cost metadata, requested only when needed.
+
+```json
+{
+  "result": {
+    "agent": "nlp-worker",
+    "caps": [
+      {
+        "id": "sentiment",
+        "h": "a1b2c3d4",
+        "desc": "Analyzes text sentiment. Input: text(string). Output: score(float), label(string).",
+        "cost": { "avg_ms": 200, "avg_tokens": 50 }
+      }
+    ]
+  }
+}
+```
+
+### Response L2 (Full Schema)
+
+Complete typed schemas with examples. Only fetched when an agent needs to construct a new invocation.
+
+```json
+{
+  "result": {
+    "caps": [{
+      "id": "sentiment",
+      "h": "a1b2c3d4",
+      "input": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "maxLength": 10000 },
+          "lang": { "type": "string", "default": "auto" }
+        },
+        "required": ["text"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "label": { "type": "string", "enum": ["positive", "negative", "neutral"] },
+          "score": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      },
+      "examples": [
+        { "in": { "text": "I love it" }, "out": { "label": "positive", "score": 0.95 } }
+      ]
+    }]
+  }
+}
+```
+
+---
+
+## 2. `nekte.invoke` -- Efficient Invocation
+
+Invokes a capability. The `version_hash` enables zero-schema invocation: if the hash matches what the server has, execution proceeds without schema validation overhead.
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "nekte.invoke",
+  "id": 2,
+  "params": {
+    "cap": "sentiment",
+    "h": "a1b2c3d4",
+    "in": { "text": "The product is excellent but shipping was slow" },
+    "budget": { "max_tokens": 100, "detail_level": "compact" }
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "result": {
+    "out": { "label": "mixed", "score": 0.62 },
+    "meta": { "ms": 180, "tokens_used": 45 }
+  }
+}
+```
+
+### Version Mismatch
+
+If the capability has been updated since the client cached it, the server returns the updated schema in the error -- no extra round-trip needed.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 2,
+  "error": {
+    "code": -32001,
+    "message": "VERSION_MISMATCH",
+    "data": {
+      "current_hash": "m3n4o5p6",
+      "schema": { "...updated L2 schema..." }
+    }
+  }
+}
+```
+
+---
+
+## 3. `nekte.delegate` -- Task Delegation with Streaming
+
+An agent delegates a complete task to another, with an explicit contract. The response streams via SSE (HTTP) or server-streaming RPC (gRPC).
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "nekte.delegate",
+  "id": 3,
+  "params": {
+    "task": {
+      "id": "task-001",
+      "desc": "Analyze sentiment of 500 reviews",
+      "timeout_ms": 30000,
+      "budget": { "max_tokens": 500, "detail_level": "compact" }
+    },
+    "context": {
+      "data": { "reviews_url": "s3://bucket/reviews.jsonl" },
+      "permissions": { "forward": false, "persist": false, "derive": true },
+      "ttl_s": 3600
+    }
+  }
+}
+```
+
+### Streaming Response (SSE events)
+
+```
+event: progress
+data: {"processed":50,"total":500,"message":"Processing batch 1"}
+
+event: progress
+data: {"processed":250,"total":500,"message":"Processing batch 5"}
+
+event: partial
+data: {"out":{"preliminary_score":0.72},"resolved_level":"compact"}
+
+event: complete
+data: {"task_id":"task-001","status":"completed","out":{"minimal":"65% positive","compact":{"..."}}}
+```
+
+### Lifecycle Events
+
+```
+event: cancelled
+data: {"task_id":"task-001","reason":"User requested","previous_status":"running"}
+
+event: suspended
+data: {"task_id":"task-001","checkpoint_available":true}
+
+event: resumed
+data: {"task_id":"task-001","from_checkpoint":true}
+```
+
+---
+
+## 4. `nekte.task.cancel` -- Task Cancellation
+
+Cancel a running or suspended task. Fires the server-side `AbortSignal`.
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "nekte.task.cancel",
+  "id": 10,
+  "params": {
+    "task_id": "task-001",
+    "reason": "User requested early stop"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 10,
+  "result": {
+    "task_id": "task-001",
+    "status": "cancelled",
+    "previous_status": "running"
+  }
+}
+```
+
+Error codes: `-32009 TASK_NOT_FOUND`, `-32010 TASK_NOT_CANCELLABLE`
+
+---
+
+## 5. `nekte.task.resume` -- Task Resume
+
+Resume a previously suspended task. The server re-invokes the delegate handler with the saved checkpoint.
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "nekte.task.resume",
+  "id": 11,
+  "params": {
+    "task_id": "task-001",
+    "budget": { "max_tokens": 500, "detail_level": "compact" }
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 11,
+  "result": {
+    "task_id": "task-001",
+    "status": "running",
+    "previous_status": "suspended"
+  }
+}
+```
+
+Error codes: `-32009 TASK_NOT_FOUND`, `-32011 TASK_NOT_RESUMABLE`
+
+---
+
+## 6. `nekte.task.status` -- Task Status Query
+
+Query the current lifecycle state of any task.
+
+### Request
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "nekte.task.status",
+  "id": 12,
+  "params": {
+    "task_id": "task-001"
+  }
+}
+```
+
+### Response
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 12,
+  "result": {
+    "task_id": "task-001",
+    "status": "completed",
+    "checkpoint_available": false,
+    "created_at": "2026-01-15T10:30:00Z",
+    "updated_at": "2026-01-15T10:31:25Z"
+  }
+}
+```
+
+---
+
+## 7. `nekte.context` -- Context Envelopes
+
+Wraps shared context with explicit permissions and time-to-live. Prevents context leaking between agents.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "nekte.context",
+  "id": 20,
+  "params": {
+    "envelope": {
+      "data": { "user_preferences": { "lang": "en", "tone": "formal" } },
+      "permissions": {
+        "forward": false,
+        "persist": false,
+        "derive": true
+      },
+      "ttl_s": 3600,
+      "scope": ["sentiment", "summarize"]
+    }
+  }
+}
+```
+
+<Aside>
+`nekte.context` is fully implemented in v0.3. Permissions are enforced: `forward: false` prevents the receiving agent from sharing the context with downstream agents. `persist: false` means the data must not be stored beyond the TTL.
+</Aside>
+
+---
+
+## 8. `nekte.verify` -- Result Verification
+
+Allows an agent to request verification of a previous result with cryptographic proofs.
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "nekte.verify",
+  "id": 30,
+  "params": {
+    "task_id": "task-001",
+    "result_hash": "abc123def456",
+    "verification_type": "deterministic"
+  }
+}
+```
+
+<Aside>
+`nekte.verify` is fully implemented in v0.3. It supports deterministic re-execution and probabilistic sampling verification modes.
+</Aside>
+
+---
+
+## Task Lifecycle State Machine
+
+All task-related primitives operate on a shared state machine:
+
+```
+pending -> accepted -> running -> completed
+                    -> suspended -> running (resume)
+(any non-terminal) -> cancelled | failed
+```
+
+- **Cancel**: Any active task via `nekte.task.cancel` -- fires `AbortSignal`
+- **Suspend**: Running tasks can save checkpoints for later resume
+- **Resume**: Suspended tasks via `nekte.task.resume` -- restores from checkpoint
+- **Status**: Query any task via `nekte.task.status`

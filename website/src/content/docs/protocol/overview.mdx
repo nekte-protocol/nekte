@@ -1,0 +1,125 @@
+---
+title: Protocol Overview
+description: Why NEKTE exists, the competitive landscape, and core design principles
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## The Problem
+
+Current AI agent communication protocols prioritize expressiveness over efficiency. The result:
+
+- **MCP** serializes all tool schemas into every conversation turn. With 30 tools, roughly 3,600 tokens per turn are burned on definitions alone -- regardless of whether they are used. In enterprise scenarios (100+ tools), **72% of the context window is consumed before the model sees the first user message**.
+- **A2A** (Google) solves agent-to-agent coordination but inherits the same verbose schema pattern via JSON and full Agent Cards in every interaction.
+
+<Aside type="caution">
+Every token wasted on protocol overhead is a token stolen from the model's reasoning. Protocol efficiency is not an optimization -- it is a precondition for system intelligence.
+</Aside>
+
+### Reference Data
+
+| Metric | MCP native | mcp2cli | NEKTE |
+|--------|-----------|---------|-------|
+| Cost per tool (discovery) | ~121 tokens/turn | ~16 tokens (once) | ~8 tokens (once) |
+| Cost per invocation | ~121 tokens + payload | ~120 tokens (first) | 0 tokens (cached) |
+| 30 tools x 10 turns | 36,310 tokens | 1,734 tokens | less than 800 tokens |
+| 120 tools x 25 turns | 362,000 tokens | ~5,000 tokens | less than 2,000 tokens |
+
+## Competitive Landscape
+
+### MCP (Anthropic, 2024)
+
+Agent-to-Tool. De facto standard for connecting LLMs to external tools. 10K+ servers, 97M SDK downloads. Problem: eager schema loading, immature security, unsustainable overhead at scale.
+
+### A2A (Google - Linux Foundation, 2025)
+
+Agent-to-Agent. 100+ partners (Salesforce, SAP, AWS). Under Linux Foundation governance. Covers discovery, delegation, peer-to-peer coordination. Enterprise critical mass. Does not address token efficiency. Supports task lifecycle (cancel, resume) but with polling-based status queries.
+
+### RTK (rtk-ai, 2026)
+
+CLI proxy that compresses terminal output before it reaches the agent's context. 17K+ GitHub stars. 60-90% reduction in command output tokens. Operates at the shell level, not the protocol level.
+
+### mcp2cli / CLIHub (Open Source, 2026)
+
+Converts MCP servers to CLI with on-demand discovery. 96-99% savings on schema tokens. Proves that lazy discovery works, but as a hack -- not a formal protocol.
+
+### Feature Comparison
+
+| Feature | MCP | A2A | RTK | NEKTE |
+|---------|-----|-----|-----|-------|
+| Focus | Agent-to-Tool | Agent-to-Agent | CLI output | Agent-to-Agent (efficient) |
+| Discovery | Eager (all upfront) | Full Agent Card | N/A | Progressive L0/L1/L2 |
+| Zero-schema invocation | No | No | N/A | Yes (version hash) |
+| Native token budget | No | No | N/A | Yes (first-class) |
+| Result compression | No | No | Yes (CLI) | Yes (minimal/compact/full) |
+| Context permissions | No | Limited | N/A | Envelopes with TTL |
+| Verification | No | No | N/A | Native primitive |
+| Task lifecycle | No | Cancel/resume (polling) | N/A | Cancel/suspend/resume (push) |
+| gRPC transport | No | Yes | N/A | Yes (native) |
+| MCP Bridge | N/A | N/A | N/A | @nekte/bridge |
+
+## Design Principles
+
+### Token Budget as a First-Class Citizen
+
+Every NEKTE message includes a `budget` field indicating the tokens available for the response. The receiving agent MUST respect this budget, adapting the granularity of its response.
+
+```json
+{
+  "budget": {
+    "max_tokens": 500,
+    "detail_level": "compact"
+  }
+}
+```
+
+The three detail levels:
+- **minimal** -- A single-line string representation (~4 tokens)
+- **compact** -- Structured data with abbreviated fields (~12 tokens)
+- **full** -- Complete analysis with explanations (~200 tokens)
+
+### Progressive Discovery (Lazy Discovery)
+
+No agent loads full schemas by default. Discovery occurs at three resolution levels, and the consuming agent decides how much it needs:
+
+| Level | What You Get | Estimated Cost |
+|-------|-------------|----------------|
+| **L0 -- Catalog** | List of names + categories | ~8 tokens/capability |
+| **L1 -- Summary** | Description + main inputs/outputs | ~40 tokens/capability |
+| **L2 -- Full Schema** | Typed JSON Schema with examples | ~120 tokens/capability |
+
+### Zero-Schema Invocation
+
+If an agent already knows a capability from a previous interaction, it can invoke it directly using a version hash. The receiver validates the hash -- if it matches, execution proceeds without re-sending the schema. If the hash is stale, the updated schema is returned in the error response, eliminating extra round-trips.
+
+### Semantic Result Compression
+
+Results are returned at the detail level requested by the budget:
+
+```json
+{
+  "result": {
+    "minimal": "positive 0.87",
+    "compact": { "sentiment": "positive", "score": 0.87 },
+    "full": { "sentiment": "positive", "score": 0.87, "explanation": "..." }
+  },
+  "resolved_level": "compact"
+}
+```
+
+### Transport Agnostic
+
+NEKTE is transport agnostic (HTTP, gRPC, WebSocket, stdio) but opinionated about format:
+
+- **JSON-RPC 2.0** as the envelope
+- **gRPC with Protobuf** for high-performance wire format
+- **Compact fields** by default, expanded only with `detail_level: "full"`
+- **No schemas on the wire** unless explicitly requested
+
+### Positioning
+
+NEKTE does not compete with existing protocols -- it complements them:
+
+- **+ MCP**: MCP connects agents to tools. NEKTE connects agents to agents efficiently. The bridge enables instant adoption.
+- **+ A2A**: Where A2A prioritizes enterprise governance, NEKTE prioritizes token efficiency. For startups, indie devs, and high-volume apps.
+- **+ RTK**: RTK compresses CLI output. NEKTE compresses protocol overhead. Different layers, fully combinable.

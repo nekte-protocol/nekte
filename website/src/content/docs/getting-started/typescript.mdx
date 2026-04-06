@@ -1,0 +1,241 @@
+---
+title: TypeScript Setup Guide
+description: Build two agents that communicate via the NEKTE protocol
+---
+
+import { Steps, Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Prerequisites
+
+- Node.js 20+
+- pnpm 9+
+
+## Installation
+
+```bash
+pnpm add @nekte/client @nekte/server zod
+```
+
+## 1. Create a Server (Agent)
+
+<Steps>
+
+1. **Define the server** with a capability:
+
+   ```typescript
+   // server.ts
+   import { z } from 'zod';
+   import { NekteServer } from '@nekte/server';
+
+   const server = new NekteServer({
+     agent: 'weather-agent',
+     version: '1.0.0',
+   });
+   ```
+
+2. **Register a capability** with typed schemas and multi-level compression:
+
+   ```typescript
+   server.capability('get-weather', {
+     inputSchema: z.object({
+       city: z.string(),
+       units: z.enum(['celsius', 'fahrenheit']).default('celsius'),
+     }),
+     outputSchema: z.object({
+       temp: z.number(),
+       condition: z.string(),
+     }),
+     category: 'weather',
+     description: 'Get current weather for a city',
+     handler: async (input, ctx) => {
+       if (ctx.signal.aborted) throw new Error('Cancelled');
+       return { temp: 22, condition: 'sunny' };
+     },
+     toMinimal: (out) => `${out.temp} ${out.condition}`,
+     toCompact: (out) => ({ t: out.temp, c: out.condition }),
+   });
+   ```
+
+3. **Start the server:**
+
+   ```typescript
+   server.listen(4001);
+   ```
+
+4. **Run it:**
+
+   ```bash
+   npx tsx server.ts
+   ```
+
+</Steps>
+
+## 2. Create a Client
+
+```typescript
+// client.ts
+import { NekteClient } from '@nekte/client';
+
+const client = new NekteClient('http://localhost:4001');
+
+// Step 1: Discover capabilities (~8 tokens per capability)
+const catalog = await client.catalog();
+console.log('Capabilities:', catalog.caps.map(c => c.id));
+
+// Step 2: Get details about a specific capability (~40 tokens)
+const detail = await client.describe('get-weather');
+
+// Step 3: Invoke with a token budget
+const result = await client.invoke('get-weather', {
+  input: { city: 'Madrid' },
+  budget: { max_tokens: 50, detail_level: 'minimal' },
+});
+console.log('Result:', result.out); // "22 sunny"
+
+// Step 4: Second invocation -- zero-schema (0 extra tokens!)
+const result2 = await client.invoke('get-weather', {
+  input: { city: 'Tokyo' },
+});
+
+await client.close();
+```
+
+## 3. Streaming Delegation with Cancel
+
+For long-running tasks, use `delegateStream` which returns an async iterable of SSE events with cancel support:
+
+```typescript
+// Server: register a delegate handler
+server.onDelegate(async (task, stream, context, signal) => {
+  for (let i = 1; i <= 100; i++) {
+    if (signal.aborted) {
+      stream.cancelled(task.id, 'running', 'Aborted by client');
+      return;
+    }
+    stream.progress(i, 100, `Processing batch ${i}`);
+    await new Promise(r => setTimeout(r, 50));
+  }
+  stream.complete(task.id, {
+    minimal: 'Analysis complete',
+    compact: { batches: 100, score: 0.85 },
+  });
+});
+```
+
+```typescript
+// Client: consume the stream
+const stream = client.delegateStream({
+  id: 'task-001',
+  desc: 'Analyze customer reviews',
+  timeout_ms: 60_000,
+});
+
+for await (const event of stream.events) {
+  switch (event.event) {
+    case 'progress':
+      console.log(`${event.data.processed}/${event.data.total}`);
+      if (event.data.processed >= 50) {
+        await stream.cancel('User requested early stop');
+      }
+      break;
+    case 'complete':
+      console.log('Done:', event.data.out);
+      break;
+    case 'cancelled':
+      console.log('Cancelled:', event.data.reason);
+      break;
+  }
+}
+
+// Query task status after completion
+const status = await client.taskStatus('task-001');
+console.log('Final status:', status.status);
+```
+
+## 4. gRPC Transport
+
+For high-throughput, polyglot communication:
+
+<Tabs>
+  <TabItem label="Server">
+    ```typescript
+    import { NekteServer, createGrpcTransport } from '@nekte/server';
+
+    const server = new NekteServer({ agent: 'fast-agent' });
+    // ... register capabilities ...
+
+    server.listen(4001);  // HTTP
+    const grpc = await createGrpcTransport(server, { port: 4002 }); // gRPC
+    ```
+  </TabItem>
+  <TabItem label="Client">
+    ```typescript
+    import { NekteClient, createGrpcClientTransport } from '@nekte/client';
+
+    const transport = await createGrpcClientTransport({
+      endpoint: 'localhost:4002',
+    });
+    const client = new NekteClient('grpc://localhost:4002', { transport });
+
+    // Same API -- transport is pluggable
+    const catalog = await client.catalog();
+    ```
+  </TabItem>
+</Tabs>
+
+## 5. Bridge an MCP Server
+
+If you have existing MCP servers, drop the bridge in front for instant 90%+ token savings:
+
+```bash
+npx nekte-bridge --mcp-url http://localhost:3000/mcp --name github --port 3100
+```
+
+Or with a config file:
+
+```json
+{
+  "name": "my-bridge",
+  "mcpServers": [
+    { "name": "github", "url": "http://localhost:3000/mcp", "category": "dev" },
+    {
+      "name": "filesystem",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "category": "fs"
+    }
+  ],
+  "port": 3100
+}
+```
+
+```typescript
+const client = new NekteClient('http://localhost:3100');
+const catalog = await client.catalog(); // All MCP tools as NEKTE capabilities
+```
+
+## 6. Authentication
+
+```typescript
+import { NekteServer, bearerAuth } from '@nekte/server';
+
+const server = new NekteServer({
+  agent: 'secure-agent',
+  auth: 'bearer',
+  authHandler: bearerAuth(['my-secret-token']),
+});
+```
+
+Clients send the token in headers:
+
+```typescript
+const client = new NekteClient('http://localhost:4001', {
+  headers: { Authorization: 'Bearer my-secret-token' },
+});
+```
+
+## Next Steps
+
+- **[Protocol Primitives](/protocol/primitives/)** -- All 8 primitives with JSON examples
+- **[Cache Architecture](/guides/cache/)** -- SIEVE, GDSF, stale-while-revalidate
+- **[Benchmarks](/reference/benchmarks/)** -- Token savings data and enterprise cost analysis

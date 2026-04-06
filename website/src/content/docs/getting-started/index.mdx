@@ -1,0 +1,69 @@
+---
+title: Quick Start
+description: Get up and running with NEKTE in under 5 minutes
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Install
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```bash
+    pnpm add @nekte/client @nekte/server
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```bash
+    pip install nekte
+    ```
+  </TabItem>
+</Tabs>
+
+## 5-Line Quickstart
+
+<Tabs>
+  <TabItem label="TypeScript">
+    ```typescript
+    import { NekteClient } from '@nekte/client';
+    const client = new NekteClient('http://localhost:4001');
+    const catalog = await client.catalog();          // L0: ~8 tok/cap
+    const result = await client.invoke('sentiment', { input: { text: 'Great!' } });
+    console.log(result.out);                         // "positive 0.9"
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    from nekte import NekteClient
+    client = NekteClient("http://localhost:4001")
+    catalog = await client.catalog()                 # L0: ~8 tok/cap
+    result = await client.invoke("sentiment", input={"text": "Great!"})
+    print(result.out)                                # "positive 0.9"
+    ```
+  </TabItem>
+</Tabs>
+
+## What Just Happened?
+
+1. **`catalog()`** sent a `nekte.discover` request at Level 0. The server responded with a list of capability names, categories, and version hashes -- roughly 8 tokens per capability instead of 120+ for full schemas.
+
+2. **`invoke()`** sent a `nekte.invoke` request with the version hash from the catalog. Because the hash matched, the server executed the capability without requiring the schema to be re-sent -- zero extra tokens.
+
+3. The result came back in **minimal** format by default: a short string representation that fits in a few tokens.
+
+## Core Concepts
+
+| Concept | What It Means |
+|---------|---------------|
+| **L0/L1/L2** | Discovery levels: catalog (8 tok) to summary (40 tok) to full schema (120 tok) |
+| **Version hash** | 8-char hash of a capability's contract. If unchanged, skip schema reload |
+| **Token budget** | `{ max_tokens, detail_level }` -- the receiver adapts response granularity |
+| **Multi-level result** | Same data in minimal/compact/full representations |
+| **DelegateStream** | `{ events, cancel(), taskId }` -- streaming with lifecycle control |
+
+## Next Steps
+
+- **[TypeScript Setup Guide](/getting-started/typescript/)** -- Full walkthrough: server, client, streaming, gRPC, bridge
+- **[Protocol Overview](/protocol/overview/)** -- Why NEKTE exists and how it compares to MCP and A2A
+- **[Primitives Reference](/protocol/primitives/)** -- All 8 protocol primitives with JSON examples
+- **[Architecture](/architecture/overview/)** -- Hexagonal architecture and DDD patterns

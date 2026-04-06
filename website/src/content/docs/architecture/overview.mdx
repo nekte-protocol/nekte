@@ -1,0 +1,129 @@
+---
+title: Architecture Overview
+description: Why NEKTE uses hexagonal architecture and domain-driven design
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## Why Hexagonal + DDD?
+
+NEKTE is not just a wire protocol -- it is a system with multiple transports, caching strategies, task lifecycle management, and cross-SDK consistency requirements. These constraints make hexagonal architecture and DDD patterns a natural fit.
+
+### The Forces at Play
+
+1. **Multiple transports** (HTTP, gRPC, WebSocket, stdio) that must implement the same contracts -- ports and adapters are the textbook solution.
+
+2. **Protocol types as domain model** -- `TokenBudget`, `CapabilityRef`, `SseEvent` are immutable value objects. `TaskEntry` is an aggregate root with a validated state machine. These are not DTOs; they carry business rules.
+
+3. **Cross-SDK consistency** -- The same patterns in TypeScript and Python ensure that adding a Go or Rust SDK follows predictable structure.
+
+4. **Cache has domain logic** -- SIEVE eviction, GDSF token-cost weighting, and stale-while-revalidate are pure algorithms that belong in the domain layer, not tangled with `Map` or Redis implementations.
+
+5. **Testability** -- Domain logic is tested without any I/O. Transport adapters are tested against port contracts. Integration tests compose real adapters.
+
+## The 4 Layers
+
+```
++---------------------------------------------------+
+|                  Adapters                          |
+|  HttpTransport, GrpcTransport, WsTransport        |
+|  SseStreamWriter, BearerAuth, InMemoryCacheStore  |
++---------------------------------------------------+
+                       |
++---------------------------------------------------+
+|                Application                         |
+|  NekteClient, NekteServer                         |
+|  CapabilityCache, RequestCoalescer                |
++---------------------------------------------------+
+                       |
++---------------------------------------------------+
+|                   Ports                            |
+|  Transport, DelegateHandler, AuthHandler          |
+|  CacheStore, StreamWriter, GrpcWritableStream     |
++---------------------------------------------------+
+                       |
++---------------------------------------------------+
+|                  Domain                            |
+|  TaskEntry, TokenBudget, CapabilityRef            |
+|  SievePolicy, GDSFPolicy, State Machine           |
+|  canonicalize(), resolve_budget()                 |
++---------------------------------------------------+
+```
+
+### Domain Layer (Pure, Zero I/O)
+
+Contains the protocol's business rules with no dependencies on infrastructure:
+
+- **Value Objects**: `TokenBudget`, `CapabilityRef`, `SseEvent` -- immutable, serializable
+- **Aggregate Root**: `TaskEntry` -- state machine with validated transitions (`pending -> accepted -> running -> completed`)
+- **Domain Errors**: `TaskTransitionError`, `NekteProtocolError` -- typed, not generic `Error`
+- **Pure Algorithms**: `SievePolicy`, `canonicalize()`, `resolve_budget()` -- deterministic, testable without mocks
+
+### Ports Layer (Interfaces Only)
+
+Defines contracts that adapters must implement:
+
+- **`Transport`**: `rpc()`, `stream()`, `get()`, `close()` -- outbound communication
+- **`CacheStore`**: `get()`, `set()`, `delete()`, `keys()`, `size`, `clear()` -- storage abstraction
+- **`AuthHandler`**: `authenticate()` -- pluggable authentication
+- **`DelegateHandler`**: `(task, stream, context, signal) -> void` -- inbound task handling
+- **`StreamWriter`**: `progress()`, `partial()`, `complete()`, `error()` -- streaming output
+
+### Application Layer (Orchestration)
+
+Composes domain logic with ports. No direct I/O -- only calls through port interfaces:
+
+- **`NekteClient`**: Discovery + Invoke + Delegate + Task Lifecycle
+- **`NekteServer`**: Dispatch + Capability Registry + Task Registry
+- **`CapabilityCache`**: SWR + Negative caching + Revalidation
+- **`RequestCoalescer`**: Thundering herd prevention
+
+### Adapters Layer (Infrastructure)
+
+Implements ports with real I/O:
+
+- **Outbound**: `HttpTransport`, `GrpcTransport`, `WsTransport`, `InMemoryCacheStore`
+- **Inbound**: HTTP server routes, `SseStreamWriter`, `GrpcDelegateStream`, `BearerAuth`
+
+## The Dependency Rule
+
+The golden rule of hexagonal architecture: dependencies point inward.
+
+```
+Domain  <--  Ports  <--  Application  <--  Adapters
+```
+
+| Layer | Can Import |
+|-------|-----------|
+| **Domain** | Nothing external. Zero dependencies. |
+| **Ports** | Only Domain types |
+| **Application** | Domain + Ports (never concrete adapters) |
+| **Adapters** | Everything (implements ports using infrastructure) |
+
+<Aside type="tip">
+This means you can swap `HttpTransport` for `GrpcTransport` without touching `NekteClient`. The client only knows about the `Transport` port.
+</Aside>
+
+## Package Mapping
+
+Each npm package maps cleanly to layers:
+
+| Package | Primary Layer | Contents |
+|---------|--------------|----------|
+| `@nekte/core` | Domain + Ports | Types, schemas, hashing, budget, codec, state machine, gRPC types |
+| `@nekte/client` | Application + Adapters | NekteClient, HttpTransport, GrpcTransport, cache |
+| `@nekte/server` | Application + Adapters | NekteServer, HTTP/WS/gRPC transports, auth |
+| `@nekte/bridge` | Adapter | MCP-to-NEKTE translation layer |
+| `@nekte/cli` | Adapter | CLI interface to the protocol |
+
+## DDD Patterns in NEKTE
+
+| Pattern | TypeScript | Responsibility |
+|---------|-----------|----------------|
+| Value Object | `TokenBudget` (type) | Immutable, serializable budget constraint |
+| Aggregate Root | `TaskEntry` | State machine with validated transitions |
+| Domain Service | `CapabilityRegistry` | Register, filter, invoke capabilities |
+| Repository | `TaskRegistry` | CRUD + cleanup + domain events for tasks |
+| Application Service | `NekteClient` | Orchestrates ports for client workflows |
+| Port | `Transport` (interface) | Contract without implementation |
+| Adapter | `HttpTransport` (class) | Implements port with fetch/HTTP |

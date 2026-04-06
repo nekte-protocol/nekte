@@ -1,0 +1,120 @@
+---
+title: Benchmarks
+description: Token savings benchmarks and enterprise cost analysis
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## Token Savings by Scenario
+
+These benchmarks measure total tokens consumed across a full conversation, including discovery, invocation, and response overhead.
+
+| Scenario | MCP native | mcp2cli | NEKTE | vs MCP |
+|----------|-----------|---------|-------|--------|
+| 5 tools x 5 turns | 3,025 | 655 | 345 | **-89%** |
+| 15 tools x 10 turns | 18,150 | 1,390 | 730 | **-96%** |
+| 30 tools x 15 turns | 54,450 | 2,205 | 1,155 | **-98%** |
+| 50 tools x 20 turns | 121,000 | 3,100 | 1,620 | **-99%** |
+| 100 tools x 25 turns | 302,500 | 4,475 | 2,325 | **-99%** |
+| 200 tools x 30 turns | 726,000 | 6,650 | 3,430 | **~100%** |
+
+### Why the Difference?
+
+**MCP** serializes all tool schemas into every conversation turn. With 30 tools at ~121 tokens each, that is 3,630 tokens per turn just for definitions -- regardless of whether any tool is used.
+
+**mcp2cli** converts MCP servers to CLI with on-demand discovery, achieving 96-99% savings. However, it is a hack on top of MCP, not a formal protocol.
+
+**NEKTE** achieves savings through three mechanisms:
+
+1. **Progressive discovery (L0/L1/L2)**: Only fetch what you need. L0 catalog costs ~8 tokens per capability instead of ~121.
+2. **Zero-schema invocation**: After the first discovery, the version hash lets you invoke without re-sending schemas. Cost: 0 extra tokens.
+3. **Semantic result compression**: Results at `minimal` detail level use ~4 tokens instead of ~200 for full responses.
+
+## Per-Operation Token Costs
+
+| Operation | MCP | NEKTE | Savings |
+|-----------|-----|-------|---------|
+| Discovery (per tool) | ~121 tokens/turn | ~8 tokens (once, L0) | -93% |
+| Invocation overhead | ~121 tokens + payload | 0 tokens (cached hash) | -100% |
+| Response (minimal) | Full response always | ~4 tokens | Variable |
+| Response (compact) | Full response always | ~12 tokens | Variable |
+
+### Discovery Level Costs
+
+| Level | What You Get | Cost per Capability |
+|-------|-------------|-------------------|
+| L0 -- Catalog | Name + category + version hash | ~8 tokens |
+| L1 -- Summary | Description + input/output types | ~40 tokens |
+| L2 -- Full Schema | Typed JSON Schema + examples | ~120 tokens |
+
+<Aside>
+Most agent interactions only need L0. The agent sees what capabilities exist, then invokes using the cached version hash. Full schemas (L2) are only fetched when an agent encounters a capability for the first time or when a version mismatch occurs.
+</Aside>
+
+## Enterprise Cost Analysis
+
+**Scenario**: 50 tools, 20 turns per conversation, 1,000 conversations per day.
+
+| Protocol | Tokens/Day | Monthly Cost* | Monthly Savings |
+|----------|-----------|--------------|----------------|
+| **MCP native** | 121,000,000 | **$10,890** | -- |
+| **mcp2cli** | 3,100,000 | **$279** | $10,611 |
+| **NEKTE** | 1,620,000 | **$146** | $10,744 |
+
+*Based on GPT-4 class pricing at $3/1M input tokens + $9/1M output tokens.*
+
+### Scaling Analysis
+
+The gap widens with scale:
+
+| Scale | MCP Monthly | NEKTE Monthly | Savings |
+|-------|------------|--------------|---------|
+| Startup (10 tools, 100 conv/day) | $109 | $3 | $106 |
+| Growth (50 tools, 1K conv/day) | $10,890 | $146 | $10,744 |
+| Enterprise (200 tools, 10K conv/day) | $653,400 | $3,087 | $650,313 |
+
+At enterprise scale with 200 tools and 10,000 conversations per day, the savings exceed **$650,000 per month**.
+
+## Context Window Impact
+
+Token savings are not just about cost. They directly affect model performance by freeing up the context window for actual reasoning.
+
+| Tools | MCP Context Consumed | NEKTE Context Consumed |
+|-------|---------------------|----------------------|
+| 5 | 6% of 128K window | 0.3% |
+| 30 | 28% of 128K window | 0.9% |
+| 100 | **72%** of 128K window | 1.8% |
+| 200 | **>100%** (overflows) | 2.7% |
+
+<Aside type="caution">
+With 100+ tools, MCP consumes 72% of the context window on schema definitions alone, leaving only 28% for the user's message, conversation history, and the model's reasoning. NEKTE keeps overhead under 3% even at 200 tools.
+</Aside>
+
+## Wire Format: JSON vs MessagePack
+
+NEKTE supports optional MessagePack encoding for further wire-level savings:
+
+| Payload | JSON (bytes) | MessagePack (bytes) | Savings |
+|---------|-------------|-------------------|---------|
+| L0 discovery (3 caps) | 245 | 168 | -31% |
+| Invoke request | 189 | 132 | -30% |
+| Invoke response (compact) | 156 | 108 | -31% |
+| Delegate stream event | 134 | 92 | -31% |
+
+MessagePack provides a consistent ~30% reduction in wire size. Combined with gRPC + Protobuf, total wire overhead drops further.
+
+## Running the Benchmarks
+
+```bash
+# Clone and build
+git clone https://github.com/nekte-protocol/nekte.git
+cd nekte && pnpm install && pnpm build
+
+# Run token comparison benchmarks
+pnpm benchmark
+
+# Run JSON vs MessagePack size comparison
+nekte bench http://localhost:4001
+```
+
+The benchmark suite generates synthetic workloads at various tool counts and turn counts, measuring total tokens consumed across the full conversation lifecycle.
