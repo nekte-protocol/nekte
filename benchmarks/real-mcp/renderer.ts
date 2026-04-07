@@ -20,6 +20,7 @@ const PROTOCOLS: { id: ProtocolId; label: string }[] = [
   { id: 'mcp2cli', label: 'mcp2cli' },
   { id: 'mcp_progressive', label: 'MCP prog.' },
   { id: 'nekte', label: 'NEKTE' },
+  { id: 'nekte_optimized', label: 'NEKTE+opt' },
 ];
 
 function pad(s: string | number, w: number, align: 'left' | 'right' = 'right'): string {
@@ -46,7 +47,7 @@ function saveColor(n: number): string {
 }
 
 export function renderReport(report: BenchmarkReport, verbose = false): void {
-  const W = 100;
+  const W = 112;
 
   console.log();
   console.log(`${BOLD}${'='.repeat(W)}${RESET}`);
@@ -63,7 +64,7 @@ export function renderReport(report: BenchmarkReport, verbose = false): void {
 }
 
 function renderScenario(result: ScenarioResult, verbose: boolean): void {
-  const W = 100;
+  const W = 112;
   const colW = 12;
 
   console.log();
@@ -113,7 +114,7 @@ function renderScenario(result: ScenarioResult, verbose: boolean): void {
 }
 
 function renderSummaryTable(report: BenchmarkReport): void {
-  const W = 100;
+  const W = 112;
   const colW = 14;
 
   console.log();
@@ -158,7 +159,7 @@ function renderSummaryTable(report: BenchmarkReport): void {
 }
 
 function renderCostProjection(report: BenchmarkReport): void {
-  const W = 100;
+  const W = 112;
   const COST_PER_MTOK = 3; // $3/MTok
   const DAILY_CONV = 1000;
   const colW = 14;
@@ -224,7 +225,7 @@ function retentionColor(score: number): string {
 }
 
 export function renderRetentionReport(report: BenchmarkReport): void {
-  const W = 100;
+  const W = 112;
 
   console.log(`${BOLD}${'='.repeat(W)}${RESET}`);
   console.log(`${BOLD}  Information Retention Analysis${RESET}`);
