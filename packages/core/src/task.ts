@@ -88,46 +88,45 @@ export function isResumable(status: TaskStatus): boolean {
 // Task Entry — Aggregate Root
 // ---------------------------------------------------------------------------
 
-/** Serializable checkpoint for task resume */
+/** Serializable checkpoint for task resume (Value Object — immutable) */
 export interface TaskCheckpoint {
-  /** Handler-specific state snapshot */
-  data: Record<string, unknown>;
-  /** When the checkpoint was created */
-  created_at: number;
+  readonly data: Record<string, unknown>;
+  readonly created_at: number;
 }
 
-/** Immutable record of a status transition */
+/** Record of a single state transition (Value Object — immutable) */
 export interface TaskTransition {
-  from: TaskStatus;
-  to: TaskStatus;
-  timestamp: number;
-  reason?: string;
+  readonly from: TaskStatus;
+  readonly to: TaskStatus;
+  readonly timestamp: number;
+  readonly reason?: string;
 }
 
 /**
- * TaskEntry — The aggregate root for task lifecycle.
+ * TaskEntry — Aggregate Root for task lifecycle.
  *
- * Encapsulates a task, its current state, abort signaling,
- * and checkpoint data for resume. All state changes go through
- * validated transitions.
+ * All fields are readonly. State changes MUST go through
+ * transitionTask() / saveCheckpoint() which enforce the
+ * state machine invariants.
+ *
+ * Note: Unlike the Python SDK (which returns new frozen instances),
+ * the TS SDK mutates internal state for performance (AbortController
+ * is inherently mutable). The readonly modifiers prevent accidental
+ * mutation from outside transitionTask()/saveCheckpoint().
  */
 export interface TaskEntry {
-  /** The original task definition */
   readonly task: Task;
-  /** Current lifecycle status */
-  status: TaskStatus;
-  /** Optional context envelope */
   readonly context?: ContextEnvelope;
-  /** AbortController for cancellation signaling */
   readonly abortController: AbortController;
-  /** Serialized checkpoint for resume */
-  checkpoint?: TaskCheckpoint;
-  /** Ordered history of all transitions */
-  transitions: TaskTransition[];
-  /** Creation timestamp */
   readonly createdAt: number;
-  /** Last update timestamp */
-  updatedAt: number;
+  /** @internal Mutated only by transitionTask() */
+  readonly status: TaskStatus;
+  /** @internal Mutated only by saveCheckpoint() */
+  readonly checkpoint?: TaskCheckpoint;
+  /** @internal Mutated only by transitionTask() */
+  readonly transitions: readonly TaskTransition[];
+  /** @internal Mutated only by transitionTask()/saveCheckpoint() */
+  readonly updatedAt: number;
 }
 
 /**
@@ -147,10 +146,20 @@ export function createTaskEntry(task: Task, context?: ContextEnvelope): TaskEntr
   };
 }
 
+/** Mutable view for internal state machine updates only */
+interface MutableTaskEntry {
+  status: TaskStatus;
+  checkpoint?: TaskCheckpoint;
+  transitions: TaskTransition[];
+  updatedAt: number;
+}
+
 /**
  * Transition a task to a new status.
  * Throws if the transition is invalid.
- * Returns the updated entry (mutates in place for performance).
+ *
+ * Mutates internal state through a controlled cast.
+ * External code cannot mutate because TaskEntry fields are readonly.
  */
 export function transitionTask(entry: TaskEntry, to: TaskStatus, reason?: string): TaskEntry {
   if (!isValidTransition(entry.status, to)) {
@@ -164,9 +173,10 @@ export function transitionTask(entry: TaskEntry, to: TaskStatus, reason?: string
     reason,
   };
 
-  entry.transitions.push(transition);
-  entry.status = to;
-  entry.updatedAt = transition.timestamp;
+  const mutable = entry as unknown as MutableTaskEntry;
+  (mutable.transitions as TaskTransition[]).push(transition);
+  mutable.status = to;
+  mutable.updatedAt = transition.timestamp;
 
   // Fire abort signal on cancellation
   if (to === 'cancelled' && !entry.abortController.signal.aborted) {
@@ -178,13 +188,15 @@ export function transitionTask(entry: TaskEntry, to: TaskStatus, reason?: string
 
 /**
  * Save a checkpoint on a running task for later resume.
+ * Mutates checkpoint and updatedAt through controlled cast.
  */
 export function saveCheckpoint(entry: TaskEntry, data: Record<string, unknown>): TaskEntry {
   if (entry.status !== 'running' && entry.status !== 'suspended') {
     throw new Error(`Cannot checkpoint task in '${entry.status}' state`);
   }
-  entry.checkpoint = { data, created_at: Date.now() };
-  entry.updatedAt = Date.now();
+  const mutable = entry as unknown as MutableTaskEntry;
+  mutable.checkpoint = { data, created_at: Date.now() };
+  mutable.updatedAt = Date.now();
   return entry;
 }
 
