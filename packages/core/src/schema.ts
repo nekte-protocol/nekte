@@ -18,11 +18,7 @@ export const TokenBudgetSchema = z.object({
   detail_level: DetailLevelSchema,
 });
 
-export const DiscoveryLevelSchema = z.union([
-  z.literal(0),
-  z.literal(1),
-  z.literal(2),
-]);
+export const DiscoveryLevelSchema = z.union([z.literal(0), z.literal(1), z.literal(2)]);
 
 // ---------------------------------------------------------------------------
 // Capabilities

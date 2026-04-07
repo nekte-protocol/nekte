@@ -49,9 +49,10 @@ export function compressMcpResult(
   const resolved = resolveBudget(multiLevel, budget);
 
   return {
-    out: typeof resolved.data === 'string'
-      ? { text: resolved.data }
-      : resolved.data as Record<string, unknown>,
+    out:
+      typeof resolved.data === 'string'
+        ? { text: resolved.data }
+        : (resolved.data as Record<string, unknown>),
     resolved_level: resolved.level,
   };
 }
@@ -75,10 +76,7 @@ function buildMinimal(text: string): string {
  * Build compact representation: structured summary.
  * Target: <200 tokens.
  */
-function buildCompact(
-  text: string,
-  mcpResult: McpToolResult,
-): Record<string, unknown> {
+function buildCompact(text: string, mcpResult: McpToolResult): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 
   // Try to parse as JSON first
@@ -106,10 +104,7 @@ function buildCompact(
 /**
  * Build full representation: everything the MCP server returned.
  */
-function buildFull(
-  text: string,
-  mcpResult: McpToolResult,
-): Record<string, unknown> {
+function buildFull(text: string, mcpResult: McpToolResult): Record<string, unknown> {
   // Try JSON parse
   try {
     const parsed = JSON.parse(text);
@@ -131,10 +126,7 @@ function buildFull(
  * Flatten a nested object for compact representation.
  * Limits depth to 2 and array length to 3.
  */
-function flattenForCompact(
-  obj: Record<string, unknown>,
-  depth = 0,
-): Record<string, unknown> {
+function flattenForCompact(obj: Record<string, unknown>, depth = 0): Record<string, unknown> {
   if (depth >= 2) {
     return { _truncated: true };
   }

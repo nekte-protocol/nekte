@@ -70,8 +70,8 @@ describe('CapabilityCache — Multi-Level Storage', () => {
   it('stores different levels for the same capability', () => {
     const cache = new CapabilityCache({ defaultTtlMs: 60_000 });
 
-    cache.set('agent1', ref, 0);       // L0
-    cache.set('agent1', summary, 1);   // L1
+    cache.set('agent1', ref, 0); // L0
+    cache.set('agent1', summary, 1); // L1
 
     expect(cache.get('agent1', 'sentiment', 0)).toEqual(ref);
     expect(cache.get('agent1', 'sentiment', 1)).toEqual(summary);

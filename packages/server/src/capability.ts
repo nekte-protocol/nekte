@@ -75,10 +75,7 @@ export class CapabilityRegistry {
   /**
    * Register a new capability.
    */
-  register<TIn, TOut>(
-    id: string,
-    config: CapabilityConfig<TIn, TOut>,
-  ): RegisteredCapability {
+  register<TIn, TOut>(id: string, config: CapabilityConfig<TIn, TOut>): RegisteredCapability {
     const inputJsonSchema = this.zodToJsonSchema(config.inputSchema);
     const outputJsonSchema = this.zodToJsonSchema(config.outputSchema);
     const versionHash = computeVersionHash(inputJsonSchema, outputJsonSchema);
@@ -140,9 +137,7 @@ export class CapabilityRegistry {
     if (opts?.query) {
       const q = opts.query.toLowerCase();
       caps = caps.filter(
-        (c) =>
-          c.id.toLowerCase().includes(q) ||
-          c.schema.desc.toLowerCase().includes(q),
+        (c) => c.id.toLowerCase().includes(q) || c.schema.desc.toLowerCase().includes(q),
       );
     }
 
@@ -152,11 +147,7 @@ export class CapabilityRegistry {
   /**
    * Invoke a capability with input and budget context.
    */
-  async invoke(
-    id: string,
-    input: unknown,
-    ctx: HandlerContext,
-  ): Promise<MultiLevelResult> {
+  async invoke(id: string, input: unknown, ctx: HandlerContext): Promise<MultiLevelResult> {
     const cap = this.capabilities.get(id);
     if (!cap) throw new Error(`Capability not found: ${id}`);
 
@@ -169,9 +160,9 @@ export class CapabilityRegistry {
     const ms = Math.round(performance.now() - startMs);
 
     // Build multi-level result
-    const full = (typeof result === 'object' && result !== null
-      ? result
-      : { value: result }) as Record<string, unknown>;
+    const full = (
+      typeof result === 'object' && result !== null ? result : { value: result }
+    ) as Record<string, unknown>;
 
     return {
       minimal: cap.config.toMinimal?.(result as never),

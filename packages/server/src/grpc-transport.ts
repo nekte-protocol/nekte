@@ -82,7 +82,8 @@ export async function createGrpcTransport(
   const protoLoader = await import('@grpc/proto-loader');
 
   // Resolve proto file path
-  const protoPath = config.protoPath ?? new URL('../../proto/nekte.proto', import.meta.url).pathname;
+  const protoPath =
+    config.protoPath ?? new URL('../../proto/nekte.proto', import.meta.url).pathname;
 
   const packageDef = await protoLoader.load(protoPath, {
     keepCase: true,
@@ -93,7 +94,10 @@ export async function createGrpcTransport(
   });
 
   const protoDescriptor = grpc.loadPackageDefinition(packageDef);
-  const nekteProto = (protoDescriptor.nekte as Record<string, unknown>).v1 as Record<string, unknown>;
+  const nekteProto = (protoDescriptor.nekte as Record<string, unknown>).v1 as Record<
+    string,
+    unknown
+  >;
   const NekteService = (nekteProto.Nekte as { service: unknown }).service;
 
   // -----------------------------------------------------------------------
@@ -131,10 +135,7 @@ export async function createGrpcTransport(
     /**
      * Invoke — Unary RPC
      */
-    async Invoke(
-      call: { request: unknown },
-      callback: (err: unknown, response?: unknown) => void,
-    ) {
+    async Invoke(call: { request: unknown }, callback: (err: unknown, response?: unknown) => void) {
       try {
         const params = fromProtoInvokeRequest(call.request as never);
         const request: NekteRequest = {
@@ -145,7 +146,11 @@ export async function createGrpcTransport(
         };
         const response = await nekteServer.handleRequest(request);
         if (response.error) {
-          callback({ code: grpc.status.INTERNAL, message: response.error.message, details: JSON.stringify(response.error.data) });
+          callback({
+            code: grpc.status.INTERNAL,
+            message: response.error.message,
+            details: JSON.stringify(response.error.data),
+          });
           return;
         }
         callback(null, toProtoInvokeResponse(response.result as never));
@@ -172,7 +177,12 @@ export async function createGrpcTransport(
             taskRegistry.transition(params.task.id, 'accepted');
             taskRegistry.transition(params.task.id, 'running');
 
-            await nekteServer.delegateHandler(params.task, grpcStream as never, params.context, signal);
+            await nekteServer.delegateHandler(
+              params.task,
+              grpcStream as never,
+              params.context,
+              signal,
+            );
 
             if (!signal.aborted) {
               taskRegistry.transition(params.task.id, 'completed');
@@ -183,7 +193,11 @@ export async function createGrpcTransport(
             } else {
               const msg = err instanceof Error ? err.message : String(err);
               if (!grpcStream.isClosed) grpcStream.error(-32007, msg, params.task.id);
-              try { taskRegistry.transition(params.task.id, 'failed', msg); } catch { /* already terminal */ }
+              try {
+                taskRegistry.transition(params.task.id, 'failed', msg);
+              } catch {
+                /* already terminal */
+              }
             }
           }
 
@@ -238,10 +252,7 @@ export async function createGrpcTransport(
     /**
      * Verify — Unary RPC
      */
-    async Verify(
-      call: { request: unknown },
-      callback: (err: unknown, response?: unknown) => void,
-    ) {
+    async Verify(call: { request: unknown }, callback: (err: unknown, response?: unknown) => void) {
       try {
         const request: NekteRequest = {
           jsonrpc: '2.0',

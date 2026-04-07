@@ -135,7 +135,12 @@ export class NekteBridge {
       }
     } catch (err) {
       if (err instanceof Error && 'nekteError' in err) {
-        return { jsonrpc: '2.0', id, error: (err as Error & { nekteError: { code: number; message: string; data?: unknown } }).nekteError };
+        return {
+          jsonrpc: '2.0',
+          id,
+          error: (err as Error & { nekteError: { code: number; message: string; data?: unknown } })
+            .nekteError,
+        };
       }
       const message = err instanceof Error ? err.message : String(err);
       return this.error(id, -32000, message);

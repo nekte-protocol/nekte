@@ -245,7 +245,9 @@ export function toProtoDiscoverResponse(result: DiscoverResult): ProtoDiscoverRe
         cat: full.cat,
         h: full.h,
         desc: full.desc,
-        cost: full.cost ? { avg_ms: full.cost.avg_ms ?? 0, avg_tokens: full.cost.avg_tokens ?? 0 } : undefined,
+        cost: full.cost
+          ? { avg_ms: full.cost.avg_ms ?? 0, avg_tokens: full.cost.avg_tokens ?? 0 }
+          : undefined,
         input_schema: jsonToBytes(full.input),
         output_schema: jsonToBytes(full.output),
         examples: full.examples?.map((ex) => ({
@@ -260,7 +262,9 @@ export function toProtoDiscoverResponse(result: DiscoverResult): ProtoDiscoverRe
         cat: summary.cat,
         h: summary.h,
         desc: summary.desc,
-        cost: summary.cost ? { avg_ms: summary.cost.avg_ms ?? 0, avg_tokens: summary.cost.avg_tokens ?? 0 } : undefined,
+        cost: summary.cost
+          ? { avg_ms: summary.cost.avg_ms ?? 0, avg_tokens: summary.cost.avg_tokens ?? 0 }
+          : undefined,
       });
     } else {
       refs.push({ id: cap.id, cat: cap.cat, h: cap.h });
@@ -274,7 +278,9 @@ export function toProtoInvokeResponse(result: InvokeResult): ProtoInvokeResponse
   return {
     output: jsonToBytes(result.out),
     resolved_level: result.resolved_level,
-    meta: result.meta ? { ms: result.meta.ms ?? 0, tokens_used: result.meta.tokens_used ?? 0 } : undefined,
+    meta: result.meta
+      ? { ms: result.meta.ms ?? 0, tokens_used: result.meta.tokens_used ?? 0 }
+      : undefined,
   };
 }
 
@@ -299,7 +305,9 @@ export function toProtoDelegateEvent(event: SseEvent): ProtoDelegateEvent {
             compact: event.data.out.compact ? jsonToBytes(event.data.out.compact) : undefined,
             full: event.data.out.full ? jsonToBytes(event.data.out.full) : undefined,
           },
-          meta: event.data.meta ? { ms: event.data.meta.ms ?? 0, tokens_used: event.data.meta.tokens_used ?? 0 } : undefined,
+          meta: event.data.meta
+            ? { ms: event.data.meta.ms ?? 0, tokens_used: event.data.meta.tokens_used ?? 0 }
+            : undefined,
         },
       };
     case 'error':
@@ -358,13 +366,15 @@ export function fromProtoContextEnvelope(proto: ProtoContextEnvelope): ContextEn
 export function fromProtoDiscoverRequest(proto: ProtoDiscoverRequest): DiscoverParams {
   return {
     level: proto.level as DiscoveryLevel,
-    filter: proto.filter ? {
-      category: proto.filter.category || undefined,
-      query: proto.filter.query || undefined,
-      id: proto.filter.id || undefined,
-      top_k: proto.filter.top_k || undefined,
-      threshold: proto.filter.threshold || undefined,
-    } : undefined,
+    filter: proto.filter
+      ? {
+          category: proto.filter.category || undefined,
+          query: proto.filter.query || undefined,
+          id: proto.filter.id || undefined,
+          top_k: proto.filter.top_k || undefined,
+          threshold: proto.filter.threshold || undefined,
+        }
+      : undefined,
   };
 }
 
@@ -462,7 +472,9 @@ export function fromProtoDelegateEvent(proto: ProtoDelegateEvent): SseEvent | un
   return undefined;
 }
 
-export function fromProtoTaskLifecycleResponse(proto: ProtoTaskLifecycleResponse): TaskLifecycleResult {
+export function fromProtoTaskLifecycleResponse(
+  proto: ProtoTaskLifecycleResponse,
+): TaskLifecycleResult {
   return {
     task_id: proto.task_id,
     status: proto.status as TaskStatus,
@@ -474,9 +486,10 @@ export function fromProtoTaskStatusResponse(proto: ProtoTaskStatusResponse): Tas
   return {
     task_id: proto.task_id,
     status: proto.status as TaskStatus,
-    progress: proto.progress_total > 0
-      ? { processed: proto.progress_processed, total: proto.progress_total }
-      : undefined,
+    progress:
+      proto.progress_total > 0
+        ? { processed: proto.progress_processed, total: proto.progress_total }
+        : undefined,
     checkpoint_available: proto.checkpoint_available,
     created_at: proto.created_at,
     updated_at: proto.updated_at,

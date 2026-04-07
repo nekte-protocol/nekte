@@ -17,7 +17,12 @@ describe('compressMcpResult', () => {
 
   it('compresses JSON result to compact', () => {
     const mcpResult: McpToolResult = {
-      content: [{ type: 'text', text: JSON.stringify({ score: 0.9, label: 'positive', details: { a: 1 } }) }],
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({ score: 0.9, label: 'positive', details: { a: 1 } }),
+        },
+      ],
     };
     const { out, resolved_level } = compressMcpResult(mcpResult, {
       max_tokens: 200,

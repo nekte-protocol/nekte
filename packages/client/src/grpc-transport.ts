@@ -66,7 +66,8 @@ export async function createGrpcClientTransport(
   const grpc = await import('@grpc/grpc-js');
   const protoLoader = await import('@grpc/proto-loader');
 
-  const protoPath = config.protoPath ?? new URL('../../proto/nekte.proto', import.meta.url).pathname;
+  const protoPath =
+    config.protoPath ?? new URL('../../proto/nekte.proto', import.meta.url).pathname;
 
   const packageDef = await protoLoader.load(protoPath, {
     keepCase: true,
@@ -77,16 +78,16 @@ export async function createGrpcClientTransport(
   });
 
   const protoDescriptor = grpc.loadPackageDefinition(packageDef);
-  const nekteProto = (protoDescriptor.nekte as Record<string, unknown>).v1 as Record<string, unknown>;
+  const nekteProto = (protoDescriptor.nekte as Record<string, unknown>).v1 as Record<
+    string,
+    unknown
+  >;
   const NekteClient = nekteProto.Nekte as new (
     address: string,
     credentials: unknown,
   ) => Record<string, (...args: unknown[]) => unknown>;
 
-  const client = new NekteClient(
-    config.endpoint,
-    grpc.credentials.createInsecure(),
-  );
+  const client = new NekteClient(config.endpoint, grpc.credentials.createInsecure());
 
   // -----------------------------------------------------------------------
   // Param converters (domain → proto request shape)
@@ -138,7 +139,11 @@ export async function createGrpcClientTransport(
     async rpc<T>(method: NekteMethod, params: unknown): Promise<NekteResponse<T>> {
       const rpcName = METHOD_MAP[method];
       if (!rpcName) {
-        return { jsonrpc: '2.0', id: 0, error: { code: -32601, message: `Unknown method: ${method}` } };
+        return {
+          jsonrpc: '2.0',
+          id: 0,
+          error: { code: -32601, message: `Unknown method: ${method}` },
+        };
       }
 
       const protoParams = toProtoParams(method, params);
@@ -182,7 +187,11 @@ export async function createGrpcClientTransport(
       if (!rpcName) return;
 
       const protoParams = toProtoParams(method, params);
-      const fn = client[rpcName] as (request: unknown) => AsyncIterable<unknown> & { on: (event: string, cb: (...args: unknown[]) => void) => void };
+      const fn = client[rpcName] as (
+        request: unknown,
+      ) => AsyncIterable<unknown> & {
+        on: (event: string, cb: (...args: unknown[]) => void) => void;
+      };
       const call = fn.call(client, protoParams);
 
       // gRPC server-streaming returns a readable stream with 'data' and 'end' events
@@ -219,7 +228,9 @@ export async function createGrpcClientTransport(
           if (error) throw error;
           return;
         }
-        await new Promise<void>((r) => { resolve = r; });
+        await new Promise<void>((r) => {
+          resolve = r;
+        });
         resolve = null;
       }
     },

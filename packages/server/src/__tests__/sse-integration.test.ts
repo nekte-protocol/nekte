@@ -38,11 +38,15 @@ beforeAll(async () => {
 
     stream.partial({ preliminary: 0.8 }, 'compact');
 
-    stream.complete(task.id, {
-      minimal: 'done 0.85',
-      compact: { score: 0.85 },
-      full: { score: 0.85, details: 'full analysis' },
-    }, { ms: 30 });
+    stream.complete(
+      task.id,
+      {
+        minimal: 'done 0.85',
+        compact: { score: 0.85 },
+        full: { score: 0.85, details: 'full analysis' },
+      },
+      { ms: 30 },
+    );
   });
 
   // Start raw HTTP server (bypassing createHttpTransport for test isolation)
@@ -73,7 +77,11 @@ beforeAll(async () => {
             if (!sseStream.isClosed) sseStream.close();
           } catch (err: any) {
             if (!sseStream.isClosed) sseStream.error(-32007, err.message, params.task?.id);
-            try { server.tasks.transition(params.task.id, 'failed', err.message); } catch { /* already terminal */ }
+            try {
+              server.tasks.transition(params.task.id, 'failed', err.message);
+            } catch {
+              /* already terminal */
+            }
           }
           return;
         }

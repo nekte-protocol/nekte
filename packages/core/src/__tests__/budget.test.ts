@@ -17,7 +17,11 @@ describe('resolveBudget', () => {
   const result = {
     minimal: 'pos 0.9',
     compact: { sentiment: 'positive', score: 0.9 },
-    full: { sentiment: 'positive', score: 0.9, explanation: 'Very positive text with detailed analysis...' },
+    full: {
+      sentiment: 'positive',
+      score: 0.9,
+      explanation: 'Very positive text with detailed analysis...',
+    },
   };
 
   it('returns requested level when within budget', () => {

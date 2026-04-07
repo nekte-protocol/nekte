@@ -39,7 +39,10 @@ export const TASK_TRANSITIONS: Readonly<Record<TaskStatus, readonly TaskStatus[]
 
 /** States from which cancel is valid */
 export const CANCELLABLE_STATES: readonly TaskStatus[] = [
-  'pending', 'accepted', 'running', 'suspended',
+  'pending',
+  'accepted',
+  'running',
+  'suspended',
 ] as const;
 
 /** States from which resume is valid */
@@ -47,7 +50,9 @@ export const RESUMABLE_STATES: readonly TaskStatus[] = ['suspended'] as const;
 
 /** Terminal states — no further transitions */
 export const TERMINAL_STATES: readonly TerminalTaskStatus[] = [
-  'completed', 'failed', 'cancelled',
+  'completed',
+  'failed',
+  'cancelled',
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -129,10 +134,7 @@ export interface TaskEntry {
  * Create a new TaskEntry in 'pending' state.
  * Factory function — the only way to create a valid TaskEntry.
  */
-export function createTaskEntry(
-  task: Task,
-  context?: ContextEnvelope,
-): TaskEntry {
+export function createTaskEntry(task: Task, context?: ContextEnvelope): TaskEntry {
   const now = Date.now();
   return {
     task,
@@ -150,11 +152,7 @@ export function createTaskEntry(
  * Throws if the transition is invalid.
  * Returns the updated entry (mutates in place for performance).
  */
-export function transitionTask(
-  entry: TaskEntry,
-  to: TaskStatus,
-  reason?: string,
-): TaskEntry {
+export function transitionTask(entry: TaskEntry, to: TaskStatus, reason?: string): TaskEntry {
   if (!isValidTransition(entry.status, to)) {
     throw new TaskTransitionError(entry.task.id, entry.status, to);
   }
@@ -181,10 +179,7 @@ export function transitionTask(
 /**
  * Save a checkpoint on a running task for later resume.
  */
-export function saveCheckpoint(
-  entry: TaskEntry,
-  data: Record<string, unknown>,
-): TaskEntry {
+export function saveCheckpoint(entry: TaskEntry, data: Record<string, unknown>): TaskEntry {
   if (entry.status !== 'running' && entry.status !== 'suspended') {
     throw new Error(`Cannot checkpoint task in '${entry.status}' state`);
   }

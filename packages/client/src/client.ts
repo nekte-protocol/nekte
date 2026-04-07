@@ -53,15 +53,33 @@ export class NekteProtocolError extends Error {
     this.nekteError = { code, message, data };
   }
 
-  get isVersionMismatch(): boolean { return this.code === NEKTE_ERRORS.VERSION_MISMATCH; }
-  get isCapabilityNotFound(): boolean { return this.code === NEKTE_ERRORS.CAPABILITY_NOT_FOUND; }
-  get isBudgetExceeded(): boolean { return this.code === NEKTE_ERRORS.BUDGET_EXCEEDED; }
-  get isContextExpired(): boolean { return this.code === NEKTE_ERRORS.CONTEXT_EXPIRED; }
-  get isTaskTimeout(): boolean { return this.code === NEKTE_ERRORS.TASK_TIMEOUT; }
-  get isTaskFailed(): boolean { return this.code === NEKTE_ERRORS.TASK_FAILED; }
-  get isTaskNotFound(): boolean { return this.code === NEKTE_ERRORS.TASK_NOT_FOUND; }
-  get isTaskNotCancellable(): boolean { return this.code === NEKTE_ERRORS.TASK_NOT_CANCELLABLE; }
-  get isTaskNotResumable(): boolean { return this.code === NEKTE_ERRORS.TASK_NOT_RESUMABLE; }
+  get isVersionMismatch(): boolean {
+    return this.code === NEKTE_ERRORS.VERSION_MISMATCH;
+  }
+  get isCapabilityNotFound(): boolean {
+    return this.code === NEKTE_ERRORS.CAPABILITY_NOT_FOUND;
+  }
+  get isBudgetExceeded(): boolean {
+    return this.code === NEKTE_ERRORS.BUDGET_EXCEEDED;
+  }
+  get isContextExpired(): boolean {
+    return this.code === NEKTE_ERRORS.CONTEXT_EXPIRED;
+  }
+  get isTaskTimeout(): boolean {
+    return this.code === NEKTE_ERRORS.TASK_TIMEOUT;
+  }
+  get isTaskFailed(): boolean {
+    return this.code === NEKTE_ERRORS.TASK_FAILED;
+  }
+  get isTaskNotFound(): boolean {
+    return this.code === NEKTE_ERRORS.TASK_NOT_FOUND;
+  }
+  get isTaskNotCancellable(): boolean {
+    return this.code === NEKTE_ERRORS.TASK_NOT_CANCELLABLE;
+  }
+  get isTaskNotResumable(): boolean {
+    return this.code === NEKTE_ERRORS.TASK_NOT_RESUMABLE;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -105,11 +123,13 @@ export class NekteClient {
     }
     this.cache = new CapabilityCache(cacheConfig);
 
-    this.transport = config?.transport ?? new HttpTransport({
-      endpoint: this.endpoint,
-      headers: config?.headers,
-      timeoutMs: config?.timeoutMs,
-    });
+    this.transport =
+      config?.transport ??
+      new HttpTransport({
+        endpoint: this.endpoint,
+        headers: config?.headers,
+        timeoutMs: config?.timeoutMs,
+      });
 
     // Wire stale-while-revalidate: when a stale entry is accessed,
     // trigger a background discover to refresh it at the same level.
@@ -120,9 +140,11 @@ export class NekteClient {
         try {
           // Refresh at the highest level we had cached.
           // Check L2 first, then L1, fallback to L0.
-          const level = this.cache.get(agentId, capId, 2) ? 2
-            : this.cache.get(agentId, capId, 1) ? 1
-            : 0;
+          const level = this.cache.get(agentId, capId, 2)
+            ? 2
+            : this.cache.get(agentId, capId, 1)
+              ? 1
+              : 0;
           await this.discover({ level, filter: { id: capId } });
         } catch {
           // Best-effort background refresh — swallow errors
@@ -255,7 +277,10 @@ export class NekteClient {
   // -----------------------------------------------------------------------
 
   async cancelTask(taskId: string, reason?: string): Promise<TaskLifecycleResult> {
-    return this.rpc<TaskLifecycleResult>('nekte.task.cancel', { task_id: taskId, reason } satisfies TaskCancelParams);
+    return this.rpc<TaskLifecycleResult>('nekte.task.cancel', {
+      task_id: taskId,
+      reason,
+    } satisfies TaskCancelParams);
   }
 
   async resumeTask(taskId: string, budget?: Partial<TokenBudget>): Promise<TaskLifecycleResult> {
@@ -266,7 +291,9 @@ export class NekteClient {
   }
 
   async taskStatus(taskId: string): Promise<TaskStatusResult> {
-    return this.rpc<TaskStatusResult>('nekte.task.status', { task_id: taskId } satisfies TaskStatusParams);
+    return this.rpc<TaskStatusResult>('nekte.task.status', {
+      task_id: taskId,
+    } satisfies TaskStatusParams);
   }
 
   // -----------------------------------------------------------------------

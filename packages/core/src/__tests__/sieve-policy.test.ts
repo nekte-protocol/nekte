@@ -90,7 +90,7 @@ describe('SievePolicy', () => {
       evicted.push(sieve.evict()!);
     }
 
-    expect(evicted.every(k => k.startsWith('scan-'))).toBe(true);
+    expect(evicted.every((k) => k.startsWith('scan-'))).toBe(true);
     expect(sieve.has('hot1')).toBe(true);
     expect(sieve.has('hot2')).toBe(true);
   });

@@ -55,9 +55,8 @@ export class MetricsCollector {
       nekte_tokens: this._nekteTokens,
       mcp_equivalent_tokens: this._mcpEquivalentTokens,
       tokens_saved: Math.max(0, saved),
-      savings_pct: this._mcpEquivalentTokens > 0
-        ? Math.round((saved / this._mcpEquivalentTokens) * 100)
-        : 0,
+      savings_pct:
+        this._mcpEquivalentTokens > 0 ? Math.round((saved / this._mcpEquivalentTokens) * 100) : 0,
     };
   }
 

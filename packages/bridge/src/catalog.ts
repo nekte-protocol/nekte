@@ -73,9 +73,7 @@ export class CatalogBuilder {
     if (opts?.query) {
       const q = opts.query.toLowerCase();
       entries = entries.filter(
-        (e) =>
-          e.schema.id.toLowerCase().includes(q) ||
-          e.schema.desc.toLowerCase().includes(q),
+        (e) => e.schema.id.toLowerCase().includes(q) || e.schema.desc.toLowerCase().includes(q),
       );
     }
 

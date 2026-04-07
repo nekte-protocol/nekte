@@ -68,9 +68,7 @@ export function resolveBudget<TMin, TCom, TFul>(
 /**
  * Create a token budget with sensible defaults.
  */
-export function createBudget(
-  overrides?: Partial<TokenBudget>,
-): TokenBudget {
+export function createBudget(overrides?: Partial<TokenBudget>): TokenBudget {
   return {
     max_tokens: overrides?.max_tokens ?? 500,
     detail_level: overrides?.detail_level ?? 'compact',

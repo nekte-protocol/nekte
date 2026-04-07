@@ -364,7 +364,10 @@ export class McpConnector {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+    const pending = new Map<
+      number,
+      { resolve: (v: unknown) => void; reject: (e: Error) => void }
+    >();
     let buffer = '';
 
     child.stdout!.on('data', (chunk: Buffer) => {
@@ -380,7 +383,9 @@ export class McpConnector {
             pending.get(msg.id)!.resolve(msg);
             pending.delete(msg.id);
           }
-        } catch { /* skip malformed lines */ }
+        } catch {
+          /* skip malformed lines */
+        }
       }
     });
 
@@ -411,9 +416,9 @@ export class McpConnector {
 
   private toolsSignature(tools: McpToolSchema[]): string {
     return JSON.stringify(
-      tools.map((t) => ({ n: t.name, s: JSON.stringify(t.inputSchema) })).sort((a, b) =>
-        a.n.localeCompare(b.n),
-      ),
+      tools
+        .map((t) => ({ n: t.name, s: JSON.stringify(t.inputSchema) }))
+        .sort((a, b) => a.n.localeCompare(b.n)),
     );
   }
 }

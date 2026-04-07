@@ -104,7 +104,10 @@ async function cmdDiscover(client: NekteClient, args: string[]) {
 
   const result = await client.discover({
     level: parseInt(level) as DiscoveryLevel,
-    filter: filter || category ? { query: filter ?? undefined, category: category ?? undefined } : undefined,
+    filter:
+      filter || category
+        ? { query: filter ?? undefined, category: category ?? undefined }
+        : undefined,
   });
 
   console.log(`Agent: ${result.agent}${result.v ? ` v${result.v}` : ''}`);
@@ -206,7 +209,9 @@ function printCapability(cap: Capability, level: DiscoveryLevel) {
   }
   if (level >= 2 && 'input' in cap) {
     const schema = cap as CapabilitySchema;
-    const props = (schema.input as Record<string, unknown>)?.properties as Record<string, unknown> | undefined;
+    const props = (schema.input as Record<string, unknown>)?.properties as
+      | Record<string, unknown>
+      | undefined;
     if (props) {
       const inputs = Object.keys(props).join(', ');
       console.log(`    input: { ${inputs} }`);

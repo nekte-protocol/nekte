@@ -43,7 +43,11 @@ describe('CapabilityRegistry', () => {
   it('lists all capabilities', () => {
     const registry = new CapabilityRegistry();
     registry.register('sentiment', makeConfig());
-    registry.register('summarize', { ...makeConfig(), category: 'nlp', description: 'Summarize text' });
+    registry.register('summarize', {
+      ...makeConfig(),
+      category: 'nlp',
+      description: 'Summarize text',
+    });
     expect(registry.all()).toHaveLength(2);
   });
 
@@ -72,10 +76,14 @@ describe('CapabilityRegistry', () => {
     const registry = new CapabilityRegistry();
     registry.register('sentiment', makeConfig());
 
-    const result = await registry.invoke('sentiment', { text: 'great' }, {
-      budget: { max_tokens: 500, detail_level: 'compact' },
-      signal: new AbortController().signal,
-    });
+    const result = await registry.invoke(
+      'sentiment',
+      { text: 'great' },
+      {
+        budget: { max_tokens: 500, detail_level: 'compact' },
+        signal: new AbortController().signal,
+      },
+    );
 
     expect(result.minimal).toBe('positive 0.9');
     expect(result.compact).toEqual({ s: 'positive', v: 0.9 });
@@ -85,7 +93,14 @@ describe('CapabilityRegistry', () => {
   it('throws on unknown capability', async () => {
     const registry = new CapabilityRegistry();
     await expect(
-      registry.invoke('nope', {}, { budget: { max_tokens: 100, detail_level: 'compact' }, signal: new AbortController().signal }),
+      registry.invoke(
+        'nope',
+        {},
+        {
+          budget: { max_tokens: 100, detail_level: 'compact' },
+          signal: new AbortController().signal,
+        },
+      ),
     ).rejects.toThrow('Capability not found: nope');
   });
 
@@ -93,7 +108,14 @@ describe('CapabilityRegistry', () => {
     const registry = new CapabilityRegistry();
     registry.register('sentiment', makeConfig());
     await expect(
-      registry.invoke('sentiment', { text: 123 }, { budget: { max_tokens: 100, detail_level: 'compact' }, signal: new AbortController().signal }),
+      registry.invoke(
+        'sentiment',
+        { text: 123 },
+        {
+          budget: { max_tokens: 100, detail_level: 'compact' },
+          signal: new AbortController().signal,
+        },
+      ),
     ).rejects.toThrow();
   });
 });

@@ -16,13 +16,26 @@ const CAPS: FilterableCapability[] = [
 // Mock embedding provider: simple bag-of-words vector
 const mockProvider: EmbeddingProvider = {
   async embed(texts: string[]) {
-    const vocab = ['sentiment', 'text', 'analyze', 'translate', 'language', 'summarize', 'document', 'image', 'weather', 'city'];
+    const vocab = [
+      'sentiment',
+      'text',
+      'analyze',
+      'translate',
+      'language',
+      'summarize',
+      'document',
+      'image',
+      'weather',
+      'city',
+    ];
     return texts.map((t) => {
       const lower = t.toLowerCase();
       return vocab.map((w) => (lower.includes(w) ? 1 : 0));
     });
   },
-  dimensions() { return 10; },
+  dimensions() {
+    return 10;
+  },
 };
 
 describe('cosineSimilarity', () => {
@@ -78,7 +91,10 @@ describe('SemanticFilterStrategy', () => {
   const strategy = new SemanticFilterStrategy({ provider: mockProvider });
 
   it('ranks semantically relevant results higher', async () => {
-    const results = await strategy.filter(CAPS, 'analyze text sentiment', { top_k: 3, threshold: 0 });
+    const results = await strategy.filter(CAPS, 'analyze text sentiment', {
+      top_k: 3,
+      threshold: 0,
+    });
     expect(results.length).toBeGreaterThan(0);
     // sentiment should rank high because it shares "sentiment", "text", "analyze" words
     expect(results[0].id).toBe('sentiment');

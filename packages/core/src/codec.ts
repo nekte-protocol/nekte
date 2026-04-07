@@ -22,10 +22,7 @@ import type {
  * Project a full capability schema down to the requested discovery level.
  * This is the core of progressive discovery: only send what's needed.
  */
-export function projectCapability(
-  cap: CapabilitySchema,
-  level: DiscoveryLevel,
-): Capability {
+export function projectCapability(cap: CapabilitySchema, level: DiscoveryLevel): Capability {
   switch (level) {
     case 0:
       return {
@@ -126,9 +123,7 @@ export function compressMessage(
 /**
  * Decompress a NEKTE message from wire format.
  */
-export function decompressMessage(
-  msg: Record<string, unknown>,
-): Record<string, unknown> {
+export function decompressMessage(msg: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(msg)) {
     const newKey = REVERSE_FIELD_MAP[key] ?? key;

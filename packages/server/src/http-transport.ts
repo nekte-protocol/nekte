@@ -36,7 +36,10 @@ export function createHttpTransport(
 ): Promise<HttpTransport> {
   const hostname = config.hostname ?? '0.0.0.0';
   const auth = config.authHandler ?? nekteServer.config.authHandler ?? noAuth();
-  const log = createLogger(`nekte:http:${nekteServer.config.agent}`, config.logLevel ?? nekteServer.config.logLevel);
+  const log = createLogger(
+    `nekte:http:${nekteServer.config.agent}`,
+    config.logLevel ?? nekteServer.config.logLevel,
+  );
 
   return new Promise((resolve) => {
     const httpServer = createServer(async (req, res) => {
@@ -85,7 +88,11 @@ export function createHttpTransport(
               } else {
                 const msg = err instanceof Error ? err.message : String(err);
                 if (!stream.isClosed) stream.error(-32007, msg, params.task.id);
-                try { nekteServer.tasks.transition(params.task.id, 'failed', msg); } catch { /* already terminal */ }
+                try {
+                  nekteServer.tasks.transition(params.task.id, 'failed', msg);
+                } catch {
+                  /* already terminal */
+                }
               }
             }
             return;

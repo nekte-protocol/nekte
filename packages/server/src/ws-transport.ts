@@ -40,10 +40,7 @@ export interface WsTransport {
  * Each incoming message is treated as a JSON-RPC request
  * and dispatched to server.handleRequest().
  */
-export function createWsTransport(
-  server: NekteServer,
-  config: WsTransportConfig,
-): WsTransport {
+export function createWsTransport(server: NekteServer, config: WsTransportConfig): WsTransport {
   const log = createLogger('nekte:ws', config.logLevel);
   const clients = new Set<WebSocket>();
 

@@ -26,7 +26,7 @@ export class SseStream {
     this.res.writeHead(200, {
       'Content-Type': SSE_CONTENT_TYPE,
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
+      Connection: 'keep-alive',
       'X-Accel-Buffering': 'no', // disable nginx buffering
     });
   }

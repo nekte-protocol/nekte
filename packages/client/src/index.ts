@@ -17,7 +17,12 @@
  */
 export { NekteClient, NekteProtocolError, type NekteClientConfig } from './client.js';
 export { CapabilityCache, type CacheConfig, type RevalidationFn } from './cache.js';
-export { type CacheStore, type CacheStoreEntry, type CacheGetResult, InMemoryCacheStore } from './cache-store.js';
+export {
+  type CacheStore,
+  type CacheStoreEntry,
+  type CacheGetResult,
+  InMemoryCacheStore,
+} from './cache-store.js';
 export { SharedInMemoryCache, type SharedCache } from './shared-cache.js';
 export { RequestCoalescer } from './request-coalescer.js';
 

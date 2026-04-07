@@ -20,4 +20,8 @@ export { McpConnector, type McpServerConfig, type McpToolSchema } from './mcp-co
 export { CatalogBuilder, type CatalogEntry } from './catalog.js';
 export { compressMcpResult, type McpToolResult } from './compressor.js';
 export { MetricsCollector, type TokenMetrics } from './metrics.js';
-export { createBridgeHttpTransport, type BridgeHttpTransport, type BridgeHttpTransportConfig } from './http-transport.js';
+export {
+  createBridgeHttpTransport,
+  type BridgeHttpTransport,
+  type BridgeHttpTransportConfig,
+} from './http-transport.js';

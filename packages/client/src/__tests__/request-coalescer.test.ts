@@ -29,7 +29,9 @@ describe('RequestCoalescer', () => {
     const coalescer = new RequestCoalescer();
     let resolvePromise!: (value: string) => void;
     const fn = vi.fn().mockReturnValue(
-      new Promise<string>((resolve) => { resolvePromise = resolve; }),
+      new Promise<string>((resolve) => {
+        resolvePromise = resolve;
+      }),
     );
 
     const p1 = coalescer.coalesce('key1', fn);
@@ -52,7 +54,9 @@ describe('RequestCoalescer', () => {
     const coalescer = new RequestCoalescer();
     let resolvePromise!: (v: string) => void;
     const fn = vi.fn().mockReturnValue(
-      new Promise<string>((resolve) => { resolvePromise = resolve; }),
+      new Promise<string>((resolve) => {
+        resolvePromise = resolve;
+      }),
     );
 
     const p1 = coalescer.coalesce('key1', fn);
@@ -130,7 +134,9 @@ describe('RequestCoalescer', () => {
     const coalescer = new RequestCoalescer();
     let rejectPromise!: (err: Error) => void;
     const fn = vi.fn().mockReturnValue(
-      new Promise<string>((_, reject) => { rejectPromise = reject; }),
+      new Promise<string>((_, reject) => {
+        rejectPromise = reject;
+      }),
     );
 
     const p1 = coalescer.coalesce('key1', fn);
@@ -154,8 +160,12 @@ describe('RequestCoalescer', () => {
     const resolvers: Array<() => void> = [];
 
     for (let i = 0; i < 5; i++) {
-      coalescer.coalesce(`key-${i}`, () =>
-        new Promise<void>((resolve) => { resolvers.push(resolve); }),
+      coalescer.coalesce(
+        `key-${i}`,
+        () =>
+          new Promise<void>((resolve) => {
+            resolvers.push(resolve);
+          }),
       );
     }
 
@@ -163,13 +173,13 @@ describe('RequestCoalescer', () => {
 
     resolvers[0]();
     resolvers[1]();
-    await new Promise(r => setTimeout(r, 0)); // flush microtasks
+    await new Promise((r) => setTimeout(r, 0)); // flush microtasks
     expect(coalescer.pending).toBe(3);
 
     resolvers[2]();
     resolvers[3]();
     resolvers[4]();
-    await new Promise(r => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
     expect(coalescer.pending).toBe(0);
   });
 

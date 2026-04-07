@@ -28,7 +28,11 @@ export {
 } from './capability.js';
 export { createWsTransport, type WsTransport, type WsTransportConfig } from './ws-transport.js';
 export { noAuth, bearerAuth, apiKeyAuth, type AuthHandler, type AuthResult } from './auth.js';
-export { createHttpTransport, type HttpTransport, type HttpTransportConfig } from './http-transport.js';
+export {
+  createHttpTransport,
+  type HttpTransport,
+  type HttpTransportConfig,
+} from './http-transport.js';
 export { SseStream } from './sse-stream.js';
 export { type DelegateHandler } from './server.js';
 
@@ -44,5 +48,9 @@ export {
 } from './task-registry.js';
 
 // gRPC transport (infrastructure adapter)
-export { createGrpcTransport, type GrpcTransport, type GrpcTransportConfig } from './grpc-transport.js';
+export {
+  createGrpcTransport,
+  type GrpcTransport,
+  type GrpcTransportConfig,
+} from './grpc-transport.js';
 export { GrpcDelegateStream, type GrpcWritableStream } from './grpc-stream.js';

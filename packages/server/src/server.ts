@@ -34,15 +34,16 @@ import {
   type LogLevel,
 } from '@nekte/core';
 import { projectCapability } from '@nekte/core';
-import {
-  CapabilityRegistry,
-  type CapabilityConfig,
-  type HandlerContext,
-} from './capability.js';
+import { CapabilityRegistry, type CapabilityConfig, type HandlerContext } from './capability.js';
 import { noAuth, type AuthHandler } from './auth.js';
 import type { CapabilityFilterStrategy, FilterableCapability } from '@nekte/core';
 import type { SseStream } from './sse-stream.js';
-import { TaskRegistry, TaskNotFoundError, TaskNotCancellableError, TaskNotResumableError } from './task-registry.js';
+import {
+  TaskRegistry,
+  TaskNotFoundError,
+  TaskNotCancellableError,
+  TaskNotResumableError,
+} from './task-registry.js';
 
 /**
  * DelegateHandler — the application-layer contract for task delegation.
@@ -107,10 +108,7 @@ export class NekteServer {
   /**
    * Register a capability with typed schemas.
    */
-  capability<TIn, TOut>(
-    id: string,
-    config: CapabilityConfig<TIn, TOut>,
-  ): this {
+  capability<TIn, TOut>(id: string, config: CapabilityConfig<TIn, TOut>): this {
     this.registry.register(id, config);
     return this;
   }
@@ -167,7 +165,11 @@ export class NekteServer {
       }
     } catch (err) {
       if (err instanceof Error && 'nekteError' in err) {
-        return { jsonrpc: '2.0', id, error: (err as Error & { nekteError: NekteError }).nekteError };
+        return {
+          jsonrpc: '2.0',
+          id,
+          error: (err as Error & { nekteError: NekteError }).nekteError,
+        };
       }
       const message = err instanceof Error ? err.message : String(err);
       return this.error(id, -32000, message);
@@ -244,7 +246,9 @@ export class NekteServer {
       resolved_level: resolved.level,
       meta: {
         ms: (multiLevel.full as Record<string, unknown> | undefined)?._meta
-          ? ((multiLevel.full as Record<string, unknown>)._meta as Record<string, unknown>).ms as number | undefined
+          ? (((multiLevel.full as Record<string, unknown>)._meta as Record<string, unknown>).ms as
+              | number
+              | undefined)
           : undefined,
       },
     };
@@ -268,11 +272,7 @@ export class NekteServer {
     // TODO(v0.3): Replace naive keyword matching with proper capability resolution
     const words = params.task.desc.toLowerCase().split(/\s+/);
     const match = caps.find((c) =>
-      words.some(
-        (w) =>
-          c.id.toLowerCase().includes(w) ||
-          c.schema.desc.toLowerCase().includes(w),
-      ),
+      words.some((w) => c.id.toLowerCase().includes(w) || c.schema.desc.toLowerCase().includes(w)),
     );
 
     if (!match) {
@@ -321,7 +321,11 @@ export class NekteServer {
         if (ageS > ctx.ttl_s) {
           this.contexts.delete(params.envelope.id);
           this.contextTimestamps.delete(params.envelope.id);
-          this.log.debug('Context expired', { id: params.envelope.id, age_s: Math.round(ageS), ttl_s: ctx.ttl_s });
+          this.log.debug('Context expired', {
+            id: params.envelope.id,
+            age_s: Math.round(ageS),
+            ttl_s: ctx.ttl_s,
+          });
           throw Object.assign(new Error('Context expired'), {
             nekteError: { code: NEKTE_ERRORS.CONTEXT_EXPIRED, message: 'CONTEXT_EXPIRED' },
           });
@@ -332,7 +336,10 @@ export class NekteServer {
           const requestingForward = params.envelope.permissions.forward;
           if (requestingForward) {
             throw Object.assign(new Error('Context cannot be forwarded'), {
-              nekteError: { code: NEKTE_ERRORS.CONTEXT_PERMISSION_DENIED, message: 'CONTEXT_PERMISSION_DENIED: forward not allowed' },
+              nekteError: {
+                code: NEKTE_ERRORS.CONTEXT_PERMISSION_DENIED,
+                message: 'CONTEXT_PERMISSION_DENIED: forward not allowed',
+              },
             });
           }
         }

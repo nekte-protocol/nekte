@@ -74,7 +74,8 @@ export class CapabilityCache {
     this.defaultTtlMs = config?.defaultTtlMs ?? 5 * 60 * 1000;
     this.namespace = config?.namespace ? `${config.namespace}:` : '';
     this.negativeTtlMs = config?.negativeTtlMs ?? 60_000;
-    this.store = config?.store ?? new InMemoryCacheStore({ maxEntries: config?.maxEntries ?? 1000 });
+    this.store =
+      config?.store ?? new InMemoryCacheStore({ maxEntries: config?.maxEntries ?? 1000 });
   }
 
   /**
@@ -101,7 +102,11 @@ export class CapabilityCache {
     const existingMaxLevel = existingData?.maxLevel ?? 0;
 
     const data: CacheEntryData = existingData
-      ? { ...existingData, hash: cap.h, maxLevel: Math.max(existingMaxLevel, level) as DiscoveryLevel }
+      ? {
+          ...existingData,
+          hash: cap.h,
+          maxLevel: Math.max(existingMaxLevel, level) as DiscoveryLevel,
+        }
       : { levels: {}, hash: cap.h, maxLevel: level };
 
     data.levels[level] = cap;

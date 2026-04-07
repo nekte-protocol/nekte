@@ -42,9 +42,7 @@ export class KeywordFilterStrategy implements CapabilityFilterStrategy {
         score = 0.6;
       } else {
         // Partial: count how many query words match
-        const matches = words.filter(
-          (w) => idLower.includes(w) || descLower.includes(w),
-        );
+        const matches = words.filter((w) => idLower.includes(w) || descLower.includes(w));
         score = words.length > 0 ? (matches.length / words.length) * 0.4 : 0;
       }
 
@@ -52,9 +50,7 @@ export class KeywordFilterStrategy implements CapabilityFilterStrategy {
     });
 
     const threshold = options?.threshold ?? 0;
-    const filtered = scored
-      .filter((r) => r.score > threshold)
-      .sort((a, b) => b.score - a.score);
+    const filtered = scored.filter((r) => r.score > threshold).sort((a, b) => b.score - a.score);
 
     const topK = options?.top_k ?? filtered.length;
     return filtered.slice(0, topK);

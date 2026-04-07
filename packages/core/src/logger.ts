@@ -33,17 +33,25 @@ export function createLogger(prefix: string, level: LogLevel = 'info'): Logger {
     const suffix = data ? ' ' + JSON.stringify(data) : '';
 
     switch (lvl) {
-      case 'debug': console.debug(`${timestamp} ${tag} ${msg}${suffix}`); break;
-      case 'info':  console.log(`${timestamp} ${tag} ${msg}${suffix}`);   break;
-      case 'warn':  console.warn(`${timestamp} ${tag} ${msg}${suffix}`);  break;
-      case 'error': console.error(`${timestamp} ${tag} ${msg}${suffix}`); break;
+      case 'debug':
+        console.debug(`${timestamp} ${tag} ${msg}${suffix}`);
+        break;
+      case 'info':
+        console.log(`${timestamp} ${tag} ${msg}${suffix}`);
+        break;
+      case 'warn':
+        console.warn(`${timestamp} ${tag} ${msg}${suffix}`);
+        break;
+      case 'error':
+        console.error(`${timestamp} ${tag} ${msg}${suffix}`);
+        break;
     }
   }
 
   return {
     debug: (msg, data) => log('debug', msg, data),
-    info:  (msg, data) => log('info', msg, data),
-    warn:  (msg, data) => log('warn', msg, data),
+    info: (msg, data) => log('info', msg, data),
+    warn: (msg, data) => log('warn', msg, data),
     error: (msg, data) => log('error', msg, data),
   };
 }
@@ -51,7 +59,7 @@ export function createLogger(prefix: string, level: LogLevel = 'info'): Logger {
 /** No-op logger for testing */
 export const silentLogger: Logger = {
   debug: () => {},
-  info:  () => {},
-  warn:  () => {},
+  info: () => {},
+  warn: () => {},
   error: () => {},
 };

@@ -24,7 +24,8 @@ beforeAll(async () => {
     category: 'nlp',
     description: 'Analyze text sentiment',
     handler: async (input) => {
-      const positive = input.text.toLowerCase().includes('great') || input.text.toLowerCase().includes('love');
+      const positive =
+        input.text.toLowerCase().includes('great') || input.text.toLowerCase().includes('love');
       return {
         score: positive ? 0.92 : 0.15,
         label: positive ? 'positive' : 'negative',
