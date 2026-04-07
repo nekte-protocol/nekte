@@ -1,0 +1,139 @@
+---
+title: Authentication
+description: Bearer tokens, API keys, and custom auth handlers
+sidebar:
+  order: 6
+---
+
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+NEKTE supports pluggable authentication via the `AuthHandler` port. The server validates credentials before processing any protocol primitive.
+
+## Built-in Auth Methods
+
+### Bearer Token
+
+```typescript
+import { NekteServer, bearerAuth } from '@nekte/server';
+
+const server = new NekteServer({
+  agent: 'secure-agent',
+  version: '1.0.0',
+  auth: 'bearer',
+  authHandler: bearerAuth(['token-abc', 'token-xyz']),
+});
+```
+
+Client:
+
+```typescript
+const client = new NekteClient('http://localhost:4001', {
+  headers: { Authorization: 'Bearer token-abc' },
+});
+```
+
+### API Key
+
+```typescript
+const server = new NekteServer({
+  agent: 'api-agent',
+  auth: 'api-key',
+  authHandler: apiKeyAuth(['key-123', 'key-456']),
+});
+```
+
+Client:
+
+```typescript
+const client = new NekteClient('http://localhost:4001', {
+  headers: { 'X-API-Key': 'key-123' },
+});
+```
+
+### No Auth
+
+```typescript
+const server = new NekteServer({
+  agent: 'open-agent',
+  // No auth config -- all requests are accepted
+});
+```
+
+## Custom Auth Handler
+
+Implement the `AuthHandler` port for custom authentication:
+
+```typescript
+import type { AuthHandler } from '@nekte/server';
+
+const customAuth: AuthHandler = {
+  async authenticate(req) {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return { authenticated: false, error: 'Missing token' };
+
+    // Validate against your identity provider
+    const user = await validateWithIdP(token);
+    if (!user) return { authenticated: false, error: 'Invalid token' };
+
+    return {
+      authenticated: true,
+      principal: { id: user.id, roles: user.roles },
+    };
+  },
+};
+
+const server = new NekteServer({
+  agent: 'custom-auth-agent',
+  authHandler: customAuth,
+});
+```
+
+## Auth with gRPC
+
+gRPC uses metadata (headers) for authentication:
+
+<Tabs>
+  <TabItem label="Server">
+    ```typescript
+    const grpc = await createGrpcTransport(server, {
+      port: 4002,
+      // Auth handler is shared with HTTP -- same validation
+    });
+    ```
+  </TabItem>
+  <TabItem label="Client">
+    ```typescript
+    const transport = await createGrpcClientTransport({
+      endpoint: 'localhost:4002',
+      metadata: { authorization: 'Bearer token-abc' },
+    });
+    ```
+  </TabItem>
+</Tabs>
+
+## Agent Card Auth Field
+
+The Agent Card advertises which auth method is required:
+
+```json
+{
+  "nekte": "0.3",
+  "agent": "secure-agent",
+  "endpoint": "https://api.example.com/nekte",
+  "caps": ["sentiment"],
+  "auth": "bearer"
+}
+```
+
+Clients check the `auth` field before connecting to know which credentials to send.
+
+<Aside>
+Auth is transport-level, not primitive-level. It runs before any `nekte.*` method is processed. If auth fails, the server returns a JSON-RPC error without executing the request.
+</Aside>
+
+## Best Practices
+
+1. **Always use auth in production.** Even internal agents should authenticate to prevent accidental cross-tenant access.
+2. **Use bearer tokens for agent-to-agent.** API keys are simpler but harder to rotate. Bearer tokens integrate with standard identity providers.
+3. **Rotate credentials regularly.** The `bearerAuth()` helper accepts an array of tokens -- add the new token before removing the old one for zero-downtime rotation.
+4. **Use TLS.** Auth tokens are sent in headers. Without TLS, they are visible on the wire.

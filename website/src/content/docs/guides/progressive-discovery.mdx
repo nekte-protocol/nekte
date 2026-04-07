@@ -1,0 +1,123 @@
+---
+title: Progressive Discovery
+description: How to use L0/L1/L2 discovery levels to minimize token consumption
+sidebar:
+  order: 1
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+
+Progressive discovery is NEKTE's core innovation. Instead of loading all schemas upfront (MCP's approach), agents fetch only what they need at the resolution they need.
+
+## The Three Levels
+
+| Level | What You Get | Cost | When to Use |
+|-------|-------------|------|-------------|
+| **L0 -- Catalog** | Names, categories, version hashes | ~8 tok/cap | Always start here |
+| **L1 -- Summary** | Description, input/output types, cost hints | ~40 tok/cap | Deciding which capability to use |
+| **L2 -- Full Schema** | Typed JSON Schema with examples | ~120 tok/cap | First invocation of an unknown capability |
+
+## Typical Flow
+
+<Steps>
+
+1. **L0 -- Discover the catalog**
+
+   The agent sends `nekte.discover` with `level: 0`. The server returns a compact list of capability IDs, categories, and version hashes.
+
+   ```typescript
+   const catalog = await client.catalog(); // alias for discover({ level: 0 })
+   // catalog.caps = [
+   //   { id: "sentiment", cat: "nlp", h: "a1b2c3d4" },
+   //   { id: "summarize", cat: "nlp", h: "e5f6g7h8" },
+   //   { id: "translate", cat: "nlp", h: "i9j0k1l2" },
+   // ]
+   ```
+
+   **Cost**: ~24 tokens for 3 capabilities. MCP would spend ~363 tokens for the same tools.
+
+2. **L1 -- Get a summary (optional)**
+
+   If the agent needs to decide between capabilities, it fetches L1 for more detail:
+
+   ```typescript
+   const detail = await client.describe('sentiment'); // alias for discover({ level: 1 })
+   // {
+   //   id: "sentiment",
+   //   h: "a1b2c3d4",
+   //   desc: "Analyzes text sentiment. Input: text(string). Output: score(float), label(string).",
+   //   cost: { avg_ms: 200, avg_tokens: 50 }
+   // }
+   ```
+
+3. **L2 -- Full schema (rare)**
+
+   Only fetched when the agent encounters a completely new capability and needs the full typed schema to construct an invocation:
+
+   ```typescript
+   const full = await client.discover({ level: 2, filter: { id: 'sentiment' } });
+   // Includes input/output JSON Schema, examples, constraints
+   ```
+
+4. **Invoke with cached hash**
+
+   After any discovery level, the agent has the version hash. All subsequent invocations use this hash -- zero extra tokens.
+
+   ```typescript
+   const result = await client.invoke('sentiment', {
+     input: { text: 'Great product!' },
+     budget: { max_tokens: 50, detail_level: 'minimal' },
+   });
+   ```
+
+</Steps>
+
+## Filtering
+
+Discovery supports filtering by category and keyword to reduce response size:
+
+```typescript
+// Only NLP capabilities
+const nlpCaps = await client.discover({
+  level: 0,
+  filter: { category: 'nlp' },
+});
+
+// Search by keyword
+const searchResults = await client.discover({
+  level: 1,
+  filter: { query: 'sentiment' },
+});
+```
+
+## Token Cost Comparison
+
+With 30 tools over 15 turns:
+
+| Protocol | Total Tokens | Per Turn |
+|----------|-------------|----------|
+| MCP (eager) | 54,450 | 3,630 |
+| NEKTE (L0 once + invoke) | 1,155 | ~77 |
+
+<Aside>
+MCP re-sends all 30 schemas on every turn. NEKTE fetches L0 once (240 tokens) and then invokes with cached hashes (0 extra per turn). Over 15 turns, the difference is 53,295 tokens.
+</Aside>
+
+## Caching
+
+The client SDK caches discovery results automatically:
+
+- **L0 catalog** is cached with SIEVE eviction (scan-resistant)
+- **L1/L2 schemas** are cached with GDSF weighting (expensive schemas survive eviction)
+- **Stale-while-revalidate** serves cached data immediately, refreshes in background
+- **Negative caching** remembers "capability not found" to avoid repeated misses
+
+See the [Cache Architecture](/guides/cache/) guide for details.
+
+## Best Practices
+
+1. **Start with L0.** Always discover at L0 first. Most agents only need the catalog.
+2. **Use L1 for routing.** If an agent needs to pick between similar capabilities, L1 descriptions are usually enough.
+3. **Fetch L2 only once.** After the first L2 fetch, the version hash is cached. Subsequent invocations cost 0 extra tokens.
+4. **Filter aggressively.** If you know the category, filter at discovery time to reduce payload.
+5. **Trust the cache.** The SDK handles cache invalidation, version mismatches, and background refresh automatically.

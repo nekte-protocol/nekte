@@ -1,0 +1,110 @@
+---
+title: Agent Card
+description: The minimal agent discovery format served at .well-known/nekte.json
+sidebar:
+  order: 6
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+The Agent Card is a minimal JSON document served at `/.well-known/nekte.json`. It tells other agents what this agent can do and how to connect -- in under 50 tokens.
+
+## Format
+
+```json
+{
+  "nekte": "0.3",
+  "agent": "nlp-worker",
+  "endpoint": "https://nlp.example.com/nekte",
+  "caps": ["sentiment", "summarize", "translate"],
+  "auth": "bearer",
+  "budget_support": true
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `nekte` | string | Yes | Protocol version |
+| `agent` | string | Yes | Agent identifier |
+| `endpoint` | string | Yes | Base URL for NEKTE requests |
+| `caps` | string[] | Yes | List of capability IDs |
+| `auth` | string | No | Authentication method (`bearer`, `api-key`, `none`) |
+| `budget_support` | boolean | No | Whether this agent respects token budgets |
+
+<Aside>
+The Agent Card lists only capability IDs. Full schemas are fetched on-demand via `nekte.discover` at the level the consumer needs. This is the key difference from A2A, which embeds the full Agent Card in every interaction.
+</Aside>
+
+## Design Philosophy
+
+The Agent Card is intentionally minimal:
+
+- **~50 tokens** -- A2A Agent Cards can be 500+ tokens with full skill descriptions
+- **No schemas** -- Capability details are fetched progressively via `nekte.discover`
+- **Static** -- Can be cached aggressively, served from a CDN, or checked into source control
+- **Machine-readable** -- No markdown, no human-readable descriptions at this level
+
+## Serving the Card
+
+The `NekteServer` serves the Agent Card automatically:
+
+```typescript
+const server = new NekteServer({
+  agent: 'nlp-worker',
+  version: '1.2.0',
+});
+
+server.capability('sentiment', { /* ... */ });
+server.capability('summarize', { /* ... */ });
+
+server.listen(4001);
+// GET http://localhost:4001/.well-known/nekte.json
+// GET http://localhost:4001/nekte/card
+```
+
+Both `/.well-known/nekte.json` and `/nekte/card` return the same card.
+
+## Fetching the Card
+
+```typescript
+const client = new NekteClient('http://localhost:4001');
+const card = await client.card();
+// {
+//   nekte: "0.3",
+//   agent: "nlp-worker",
+//   caps: ["sentiment", "summarize"],
+//   auth: "bearer",
+//   budget_support: true
+// }
+```
+
+## CLI
+
+```bash
+nekte card http://localhost:4001
+```
+
+Output:
+
+```
+Agent: nlp-worker
+Version: 0.3
+Endpoint: http://localhost:4001/nekte
+Capabilities: sentiment, summarize, translate
+Auth: bearer
+Budget support: yes
+```
+
+## Discovery Flow
+
+The Agent Card is the entry point to the progressive discovery flow:
+
+```
+1. GET /.well-known/nekte.json     → Agent Card (~50 tokens)
+2. nekte.discover { level: 0 }     → Capability IDs + hashes (~8 tok/cap)
+3. nekte.discover { level: 1 }     → Summaries (~40 tok/cap)  [optional]
+4. nekte.discover { level: 2 }     → Full schemas (~120 tok/cap) [rare]
+5. nekte.invoke { h: "a1b2c3d4" }  → Zero-schema invocation (0 extra)
+```
+
+Most agents stop at step 2. They see the card, grab the L0 catalog, and invoke using cached hashes. Full schemas are only fetched when encountering a new capability or handling a version mismatch.

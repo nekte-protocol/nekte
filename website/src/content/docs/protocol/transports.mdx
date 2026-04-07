@@ -1,0 +1,197 @@
+---
+title: Transports
+description: HTTP/SSE, gRPC, WebSocket, and stdio transport adapters
+sidebar:
+  order: 3
+---
+
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+NEKTE is transport agnostic. The protocol defines message format and semantics; the transport delivers them. All transports implement the same `Transport` port, so switching between them requires no application code changes.
+
+## Supported Transports
+
+| Transport | Use Case | Streaming | Wire Format |
+|-----------|----------|-----------|-------------|
+| **HTTP/SSE** | Default, broad compatibility | Server-Sent Events | JSON-RPC |
+| **gRPC** | High-throughput, polyglot | Server-streaming | Protobuf |
+| **WebSocket** | Low-latency bidirectional | Full-duplex | JSON / MessagePack |
+| **stdio** | Local agents, MCP servers | Pipe-based | JSON-RPC |
+
+## HTTP/SSE (Default)
+
+The default transport. Request-response for `discover`, `invoke`, and task lifecycle. Server-Sent Events for `delegate` streaming.
+
+<Tabs>
+  <TabItem label="Server">
+    ```typescript
+    import { NekteServer } from '@nekte/server';
+
+    const server = new NekteServer({ agent: 'my-agent', version: '1.0.0' });
+    // Register capabilities...
+    server.listen(4001); // HTTP on port 4001
+    ```
+  </TabItem>
+  <TabItem label="Client">
+    ```typescript
+    import { NekteClient } from '@nekte/client';
+
+    // HttpTransport is used by default
+    const client = new NekteClient('http://localhost:4001');
+    const catalog = await client.catalog();
+    ```
+  </TabItem>
+</Tabs>
+
+### SSE Streaming
+
+When a client calls `delegateStream()`, the HTTP transport opens an SSE connection. Events stream as they occur:
+
+```
+event: progress
+data: {"processed":50,"total":500,"message":"Batch 1 complete"}
+
+event: partial
+data: {"out":{"preliminary_score":0.72},"resolved_level":"compact"}
+
+event: complete
+data: {"task_id":"task-001","status":"completed","out":{...}}
+```
+
+The connection stays open until the task reaches a terminal state (`completed`, `failed`, `cancelled`) or the client calls `stream.cancel()`.
+
+---
+
+## gRPC
+
+Native gRPC transport using `@grpc/grpc-js` and Protobuf definitions in `@nekte/core/proto/nekte.proto`. Uses unary RPCs for request-response and server-streaming for `delegate`.
+
+<Tabs>
+  <TabItem label="Server">
+    ```typescript
+    import { NekteServer, createGrpcTransport } from '@nekte/server';
+
+    const server = new NekteServer({ agent: 'fast-agent' });
+    // Register capabilities...
+
+    server.listen(4001);  // HTTP
+    const grpc = await createGrpcTransport(server, { port: 4002 }); // gRPC
+    ```
+  </TabItem>
+  <TabItem label="Client">
+    ```typescript
+    import { NekteClient, createGrpcClientTransport } from '@nekte/client';
+
+    const transport = await createGrpcClientTransport({
+      endpoint: 'localhost:4002',
+    });
+    const client = new NekteClient('grpc://localhost:4002', { transport });
+
+    // Same API as HTTP -- transport is transparent
+    const catalog = await client.catalog();
+    ```
+  </TabItem>
+</Tabs>
+
+### gRPC Service Definition
+
+```protobuf
+service Nekte {
+  rpc Discover(DiscoverRequest)     returns (DiscoverResponse);
+  rpc Invoke(InvokeRequest)         returns (InvokeResponse);
+  rpc Delegate(DelegateRequest)     returns (stream DelegateEvent);
+  rpc Context(ContextRequest)       returns (ContextResponse);
+  rpc Verify(VerifyRequest)         returns (VerifyResponse);
+  rpc TaskCancel(TaskCancelRequest) returns (TaskLifecycleResponse);
+  rpc TaskResume(TaskResumeRequest) returns (TaskLifecycleResponse);
+  rpc TaskStatus(TaskStatusRequest) returns (TaskStatusResponse);
+}
+```
+
+<Aside type="note">
+`@grpc/grpc-js` and `@grpc/proto-loader` are optional peer dependencies. They are only loaded when you call `createGrpcTransport` or `createGrpcClientTransport`.
+</Aside>
+
+### When to Use gRPC
+
+- High-throughput agent clusters (thousands of invocations/second)
+- Polyglot environments (Python, Go, Java agents talking to a TypeScript server)
+- When you need Protobuf wire efficiency on top of NEKTE's token efficiency
+
+---
+
+## WebSocket
+
+Low-latency bidirectional transport. Both client and server can send messages without waiting for a response.
+
+<Tabs>
+  <TabItem label="Server">
+    ```typescript
+    import { NekteServer, createWsTransport } from '@nekte/server';
+
+    const server = new NekteServer({ agent: 'ws-agent' });
+    server.listen(4001); // HTTP
+
+    const ws = createWsTransport(server, { port: 4003 }); // WebSocket
+    ```
+  </TabItem>
+  <TabItem label="Client">
+    ```typescript
+    import { NekteClient } from '@nekte/client';
+
+    const client = new NekteClient('ws://localhost:4003');
+    const catalog = await client.catalog();
+    ```
+  </TabItem>
+</Tabs>
+
+### When to Use WebSocket
+
+- Interactive applications that need low-latency responses
+- Bidirectional communication patterns
+- Browser-based agent UIs
+
+---
+
+## stdio
+
+Pipe-based transport for local agents and MCP server subprocesses. Used primarily by `@nekte/bridge` to communicate with MCP servers that run as child processes.
+
+```typescript
+// Bridge uses stdio to talk to MCP servers
+{
+  "name": "filesystem",
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+  "category": "fs"
+}
+```
+
+The bridge spawns the MCP server as a subprocess, communicates via stdin/stdout using JSON-RPC, and exposes the tools as NEKTE capabilities over HTTP.
+
+---
+
+## Transport Port Interface
+
+All transports implement the same port contract:
+
+```typescript
+interface Transport {
+  rpc<T>(method: NekteMethod, params: unknown): Promise<NekteResponse<T>>;
+  stream(method: NekteMethod, params: unknown): AsyncGenerator<SseEvent>;
+  get<T>(url: string): Promise<T>;
+  close(): Promise<void>;
+}
+```
+
+This means `NekteClient` is transport-agnostic. Swap HTTP for gRPC or WebSocket by passing a different transport at construction time -- no other code changes needed.
+
+## Wire Formats
+
+| Format | Used By | Size vs JSON |
+|--------|---------|-------------|
+| **JSON** | HTTP, WebSocket, stdio | Baseline |
+| **MessagePack** | HTTP, WebSocket (optional) | ~30% smaller |
+| **Protobuf** | gRPC | ~40% smaller |
+
+MessagePack can be enabled on any JSON transport by negotiating via the `Accept` header. Protobuf is used automatically with gRPC.

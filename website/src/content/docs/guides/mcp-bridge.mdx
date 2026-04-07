@@ -1,0 +1,198 @@
+---
+title: MCP Bridge
+description: Proxy existing MCP servers through NEKTE for 90%+ token savings
+sidebar:
+  order: 4
+---
+
+import { Steps, Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+The `@nekte/bridge` package is a drop-in proxy that translates MCP to NEKTE. Put it in front of existing MCP servers for 90%+ token savings with **zero backend changes**.
+
+```
+Agent  <── NEKTE ──>  nekte-bridge  <── MCP ──>  MCP Server(s)
+                          |
+                    cache + hash
+                    + compression
+```
+
+## Quick Start
+
+<Steps>
+
+1. **Install the bridge:**
+
+   ```bash
+   pnpm add @nekte/bridge
+   ```
+
+2. **Run against an MCP server:**
+
+   ```bash
+   npx nekte-bridge --mcp-url http://localhost:3000/mcp --name github --port 3100
+   ```
+
+3. **Connect a NEKTE client:**
+
+   ```typescript
+   import { NekteClient } from '@nekte/client';
+
+   const client = new NekteClient('http://localhost:3100');
+   const catalog = await client.catalog();
+   // All MCP tools appear as NEKTE capabilities
+   ```
+
+</Steps>
+
+## What the Bridge Does
+
+On startup:
+
+1. Connects to MCP server(s) (HTTP or stdio)
+2. Downloads all tool schemas
+3. Computes version hashes for each tool
+4. Builds a unified L0/L1/L2 catalog with semantic categories
+
+On requests:
+
+- **`nekte.discover(L0)`** -- Returns compact catalog from cache. Never touches the MCP server.
+- **`nekte.discover(L1/L2)`** -- Returns cached summaries or schemas. No MCP call needed.
+- **`nekte.invoke`** -- Validates version hash, translates to MCP `tools/call`, compresses response according to budget.
+
+## Configuration
+
+### Single MCP Server
+
+```bash
+npx nekte-bridge --mcp-url http://localhost:3000/mcp --name github --port 3100
+```
+
+### Multiple MCP Servers
+
+Use a config file to bridge multiple servers into a unified catalog:
+
+```json
+{
+  "name": "my-bridge",
+  "port": 3100,
+  "mcpServers": [
+    {
+      "name": "github",
+      "url": "http://localhost:3000/mcp",
+      "category": "dev"
+    },
+    {
+      "name": "filesystem",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "category": "fs"
+    },
+    {
+      "name": "database",
+      "url": "http://localhost:3001/mcp",
+      "category": "data"
+    }
+  ]
+}
+```
+
+```bash
+npx nekte-bridge --config bridge.json
+```
+
+All tools from all servers appear as a single NEKTE catalog with categories:
+
+```typescript
+const catalog = await client.catalog();
+// [
+//   { id: "github_create_issue", cat: "dev", h: "..." },
+//   { id: "fs_read_file",        cat: "fs",  h: "..." },
+//   { id: "db_query",            cat: "data", h: "..." },
+// ]
+```
+
+### stdio MCP Servers
+
+The bridge can spawn MCP servers as subprocesses and communicate via stdin/stdout:
+
+```json
+{
+  "name": "filesystem",
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+  "category": "fs"
+}
+```
+
+## Health and Metrics
+
+The bridge exposes a `/health` endpoint with operational metrics:
+
+```bash
+nekte health http://localhost:3100
+```
+
+```json
+{
+  "status": "healthy",
+  "uptime_s": 3600,
+  "capabilities": 15,
+  "mcp_servers": 3,
+  "cache": {
+    "entries": 15,
+    "hit_rate": 0.92
+  },
+  "requests": {
+    "total": 1250,
+    "discover": 45,
+    "invoke": 1205
+  }
+}
+```
+
+## Token Savings
+
+The bridge achieves savings through three mechanisms:
+
+1. **Cached discovery** -- MCP schemas are fetched once at startup and served from cache. Discovery calls never hit the MCP server.
+
+2. **Version hashing** -- After the first discovery, clients invoke with the hash. Zero schema overhead per invocation.
+
+3. **Response compression** -- MCP returns full responses always. The bridge compresses to the client's requested `detail_level` (minimal/compact/full).
+
+### Before and After
+
+| Operation | Direct MCP | Via Bridge |
+|-----------|-----------|------------|
+| List 30 tools | 3,630 tok/turn | 240 tok (once) |
+| Invoke (per call) | ~121 tok overhead | 0 tok overhead |
+| Response | Full always | Budget-aware |
+| 30 tools x 15 turns | **54,450 tok** | **1,155 tok** |
+
+<Aside type="tip">
+The bridge is the fastest path to NEKTE adoption. No MCP server changes needed. Drop the bridge in front, point your agents at the bridge, and start saving tokens immediately.
+</Aside>
+
+## Periodic Refresh
+
+The bridge periodically re-fetches schemas from MCP servers to detect changes:
+
+- Default refresh interval: 5 minutes
+- On schema change: version hash is updated, clients get `VERSION_MISMATCH` on next invoke
+- Clients auto-recover by caching the new hash from the error response
+
+## CLI
+
+```bash
+# Check bridge health
+nekte health http://localhost:3100
+
+# Discover through the bridge
+nekte discover http://localhost:3100
+
+# Invoke through the bridge
+nekte invoke http://localhost:3100 github_create_issue -i '{"title":"Bug fix"}'
+
+# Compare JSON vs MessagePack sizes
+nekte bench http://localhost:3100
+```

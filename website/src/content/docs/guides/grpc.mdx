@@ -1,0 +1,154 @@
+---
+title: gRPC Transport
+description: High-throughput agent communication with native gRPC and Protobuf
+sidebar:
+  order: 5
+---
+
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+NEKTE supports native gRPC as a transport for high-throughput and polyglot environments. The gRPC transport uses Protobuf wire format and server-streaming for `delegate`.
+
+## Setup
+
+gRPC dependencies are optional peer dependencies -- they are only loaded when you use `createGrpcTransport`:
+
+```bash
+pnpm add @grpc/grpc-js @grpc/proto-loader
+```
+
+## Server
+
+```typescript
+import { NekteServer, createGrpcTransport } from '@nekte/server';
+
+const server = new NekteServer({ agent: 'fast-agent', version: '1.0.0' });
+
+server.capability('sentiment', {
+  inputSchema: z.object({ text: z.string() }),
+  outputSchema: z.object({ score: z.number() }),
+  category: 'nlp',
+  description: 'Analyze text sentiment',
+  handler: async (input, ctx) => ({ score: 0.9 }),
+  toMinimal: (out) => `score: ${out.score}`,
+});
+
+// HTTP on 4001, gRPC on 4002
+server.listen(4001);
+const grpc = await createGrpcTransport(server, { port: 4002 });
+```
+
+## Client
+
+```typescript
+import { NekteClient, createGrpcClientTransport } from '@nekte/client';
+
+const transport = await createGrpcClientTransport({
+  endpoint: 'localhost:4002',
+});
+
+const client = new NekteClient('grpc://localhost:4002', { transport });
+
+// Same API as HTTP -- transport is transparent
+const catalog = await client.catalog();
+const result = await client.invoke('sentiment', {
+  input: { text: 'Great!' },
+  budget: { max_tokens: 50, detail_level: 'minimal' },
+});
+```
+
+<Aside type="tip">
+The `NekteClient` API is identical regardless of transport. Switching from HTTP to gRPC only requires changing the transport at construction time.
+</Aside>
+
+## Streaming over gRPC
+
+`delegate` uses gRPC server-streaming instead of SSE:
+
+```typescript
+// Same client API -- transport handles the difference
+const stream = client.delegateStream({
+  id: 'task-001',
+  desc: 'Analyze reviews',
+  timeout_ms: 30_000,
+});
+
+for await (const event of stream.events) {
+  // events arrive via gRPC server-streaming instead of SSE
+  if (event.event === 'progress') console.log(event.data.processed);
+  if (event.event === 'complete') console.log(event.data.out);
+}
+
+// Cancel works the same way
+await stream.cancel('Done early');
+```
+
+## Proto Definition
+
+The full proto file is at `@nekte/core/proto/nekte.proto`:
+
+```protobuf
+service Nekte {
+  rpc Discover(DiscoverRequest)     returns (DiscoverResponse);
+  rpc Invoke(InvokeRequest)         returns (InvokeResponse);
+  rpc Delegate(DelegateRequest)     returns (stream DelegateEvent);
+  rpc Context(ContextRequest)       returns (ContextResponse);
+  rpc Verify(VerifyRequest)         returns (VerifyResponse);
+  rpc TaskCancel(TaskCancelRequest) returns (TaskLifecycleResponse);
+  rpc TaskResume(TaskResumeRequest) returns (TaskLifecycleResponse);
+  rpc TaskStatus(TaskStatusRequest) returns (TaskStatusResponse);
+}
+```
+
+Key design decisions:
+
+- `Delegate` uses **server-streaming** (replaces SSE)
+- Dynamic JSON fields use `bytes` type to preserve flexibility
+- An anti-corruption layer converts between proto messages and domain types
+- The proto definitions live in `@nekte/core` so all packages can reference them
+
+## When to Use gRPC
+
+**Use gRPC when:**
+- You need high throughput (thousands of invocations/second)
+- Your agents are in different languages (Python, Go, Java can use the same proto)
+- You want Protobuf wire efficiency on top of NEKTE's token efficiency
+- You are in a microservices environment that already uses gRPC
+
+**Stick with HTTP when:**
+- You need browser compatibility (gRPC requires HTTP/2)
+- Your setup is simple (single agent, low volume)
+- You are behind proxies that do not support HTTP/2
+
+## Wire Size Comparison
+
+| Payload | JSON (HTTP) | Protobuf (gRPC) | Savings |
+|---------|------------|-----------------|---------|
+| L0 discovery (3 caps) | 245 bytes | ~150 bytes | -39% |
+| Invoke request | 189 bytes | ~115 bytes | -39% |
+| Invoke response | 156 bytes | ~95 bytes | -39% |
+| Delegate event | 134 bytes | ~82 bytes | -39% |
+
+<Aside>
+Wire size savings from Protobuf are on top of NEKTE's token savings. You get 99% fewer tokens and ~40% smaller wire payloads.
+</Aside>
+
+## TLS
+
+For production deployments, use TLS:
+
+```typescript
+// Server
+const grpc = await createGrpcTransport(server, {
+  port: 4002,
+  credentials: grpcJs.ServerCredentials.createSsl(
+    rootCert, [{ cert_chain: serverCert, private_key: serverKey }]
+  ),
+});
+
+// Client
+const transport = await createGrpcClientTransport({
+  endpoint: 'localhost:4002',
+  credentials: grpcJs.credentials.createSsl(rootCert),
+});
+```

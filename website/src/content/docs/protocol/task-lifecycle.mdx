@@ -1,0 +1,206 @@
+---
+title: Task Lifecycle
+description: State machine, cancel, suspend, resume, and checkpoint support
+sidebar:
+  order: 4
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Every delegated task in NEKTE follows a strict state machine. Transitions are validated -- illegal transitions throw `TaskTransitionError`.
+
+## State Machine
+
+```
+pending ──> accepted ──> running ──> completed
+                           |
+                           ├──> suspended ──> running (resume)
+                           |
+                           └──> failed
+         (any non-terminal) ──> cancelled
+```
+
+### Valid Transitions
+
+| From | To | Trigger |
+|------|----|---------|
+| `pending` | `accepted` | Server accepts the task |
+| `pending` | `cancelled`, `failed` | Rejected or error before acceptance |
+| `accepted` | `running` | Handler begins execution |
+| `accepted` | `cancelled`, `failed` | Cancelled or error before execution |
+| `running` | `completed` | Handler finishes successfully |
+| `running` | `suspended` | Handler yields a checkpoint |
+| `running` | `failed` | Handler throws or unrecoverable error |
+| `running` | `cancelled` | `nekte.task.cancel` fires AbortSignal |
+| `suspended` | `running` | `nekte.task.resume` resumes from checkpoint |
+| `suspended` | `cancelled`, `failed` | Cancelled or error while suspended |
+
+### Terminal States
+
+`completed`, `failed`, and `cancelled` are terminal. No transitions out of these states are allowed. Terminal tasks are automatically cleaned up by the `TaskRegistry` on a configurable interval.
+
+---
+
+## Cancel
+
+Cancel sends a cooperative signal to the handler via `AbortSignal`. The handler checks `signal.aborted` and stops gracefully.
+
+**Client side:**
+
+```typescript
+// Cancel via the delegate stream
+const stream = client.delegateStream({ id: 'task-001', desc: 'Analyze data' });
+await stream.cancel('User requested early stop');
+
+// Or cancel directly by task ID
+await client.taskCancel('task-001', 'Budget exceeded');
+```
+
+**Server side:**
+
+```typescript
+server.onDelegate(async (task, stream, context, signal) => {
+  for (let i = 0; i < 1000; i++) {
+    if (signal.aborted) {
+      stream.cancelled(task.id, 'running', 'Client cancelled');
+      return;
+    }
+    stream.progress(i, 1000);
+    await processBatch(i);
+  }
+  stream.complete(task.id, { minimal: 'Done' });
+});
+```
+
+**Wire format:**
+
+```json
+{
+  "method": "nekte.task.cancel",
+  "params": { "task_id": "task-001", "reason": "User requested early stop" }
+}
+```
+
+**Response:**
+
+```json
+{
+  "result": {
+    "task_id": "task-001",
+    "status": "cancelled",
+    "previous_status": "running"
+  }
+}
+```
+
+<Aside>
+Cancellation is cooperative, not preemptive. The handler's `AbortSignal` fires, but the handler must check it and stop. Long-running operations should check `signal.aborted` at each iteration.
+</Aside>
+
+---
+
+## Suspend and Resume
+
+A handler can suspend itself by saving a checkpoint -- arbitrary data that captures the current progress. Later, `nekte.task.resume` restarts the handler from that checkpoint.
+
+**Suspending (server side):**
+
+```typescript
+server.onDelegate(async (task, stream, context, signal) => {
+  const startFrom = context.checkpoint?.step ?? 0;
+
+  for (let i = startFrom; i < 100; i++) {
+    if (signal.aborted) return;
+
+    // Suspend if budget is running low
+    if (shouldSuspend(context)) {
+      stream.suspended(task.id, { step: i, partial: currentResults });
+      return;
+    }
+
+    stream.progress(i, 100);
+    await processBatch(i);
+  }
+
+  stream.complete(task.id, { minimal: 'Done' });
+});
+```
+
+**Resuming (client side):**
+
+```typescript
+// Resume a suspended task
+const result = await client.taskResume('task-001', {
+  budget: { max_tokens: 500, detail_level: 'compact' },
+});
+console.log(result.status); // "running"
+```
+
+**Wire format:**
+
+```json
+{
+  "method": "nekte.task.resume",
+  "params": {
+    "task_id": "task-001",
+    "budget": { "max_tokens": 500, "detail_level": "compact" }
+  }
+}
+```
+
+---
+
+## Status Query
+
+Query the current state of any task without side effects.
+
+```typescript
+const status = await client.taskStatus('task-001');
+// {
+//   task_id: "task-001",
+//   status: "running",
+//   progress: { processed: 250, total: 500 },
+//   checkpoint_available: false,
+//   created_at: 1712300000000,
+//   updated_at: 1712300025000
+// }
+```
+
+---
+
+## SSE Lifecycle Events
+
+Streaming delegates emit lifecycle events alongside `progress` and `complete`:
+
+```
+event: status_change
+data: {"task_id":"task-001","from":"pending","to":"accepted"}
+
+event: status_change
+data: {"task_id":"task-001","from":"accepted","to":"running"}
+
+event: cancelled
+data: {"task_id":"task-001","reason":"User requested","previous_status":"running"}
+
+event: suspended
+data: {"task_id":"task-001","checkpoint_available":true}
+
+event: resumed
+data: {"task_id":"task-001","from_checkpoint":true}
+```
+
+## Implementation Details
+
+- Each task gets its own `AbortController` at registration
+- `cancel()` calls `abortController.abort()` on the server
+- `TaskEntry` is a DDD Aggregate Root that validates every transition
+- The `TaskRegistry` emits domain events on transitions for observability
+- Stale terminal tasks are cleaned up automatically (configurable interval, default 5 minutes)
+
+## Error Codes
+
+| Code | Name | When |
+|------|------|------|
+| `-32009` | `TASK_NOT_FOUND` | No task with this ID exists |
+| `-32010` | `TASK_NOT_CANCELLABLE` | Task is already in a terminal state |
+| `-32011` | `TASK_NOT_RESUMABLE` | Task is not in `suspended` state |

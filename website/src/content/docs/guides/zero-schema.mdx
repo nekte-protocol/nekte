@@ -1,0 +1,129 @@
+---
+title: Zero-Schema Invocation
+description: How version hashes eliminate repeated schema transmission
+sidebar:
+  order: 2
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Zero-schema invocation is what makes NEKTE's token efficiency possible after the first discovery. Once an agent knows a capability's version hash, it invokes without re-sending or re-receiving the schema.
+
+## How It Works
+
+Every capability has a **version hash** -- an 8-character hash derived from the canonical representation of its input/output schemas.
+
+```
+Schema (input + output JSON Schema)
+  → canonicalize (sort keys, stringify)
+  → SHA-256
+  → first 8 characters
+  → "a1b2c3d4"
+```
+
+When invoking, the client sends the hash alongside the input:
+
+```json
+{
+  "method": "nekte.invoke",
+  "params": {
+    "cap": "sentiment",
+    "h": "a1b2c3d4",
+    "in": { "text": "Great product!" },
+    "budget": { "max_tokens": 50, "detail_level": "compact" }
+  }
+}
+```
+
+The server checks:
+
+1. **Hash matches** -- Execute immediately. No schema validation overhead. **0 extra tokens.**
+2. **Hash mismatch** -- Return the updated schema in the error response. The client retries with the new hash. **No extra round-trip.**
+
+## The Version Mismatch Flow
+
+When a capability's schema changes (e.g., a new required field), the hash changes. The next invocation with the old hash triggers a mismatch:
+
+```json
+{
+  "error": {
+    "code": -32001,
+    "message": "VERSION_MISMATCH",
+    "data": {
+      "current_hash": "m3n4o5p6",
+      "schema": {
+        "id": "sentiment",
+        "input": { "type": "object", "properties": { "text": { "..." } } },
+        "output": { "type": "object", "properties": { "label": { "..." } } }
+      }
+    }
+  }
+}
+```
+
+The client SDK handles this automatically:
+
+1. Receives `VERSION_MISMATCH` with the updated schema
+2. Updates its internal cache with the new hash
+3. Retries the invocation with the correct hash
+
+<Aside type="tip">
+The `NekteClient` handles version mismatches transparently. You never need to catch `VERSION_MISMATCH` manually unless you want custom behavior.
+</Aside>
+
+## Token Savings
+
+| Invocation | MCP Cost | NEKTE Cost | Savings |
+|-----------|----------|------------|---------|
+| First (after L0 discovery) | ~121 tokens | ~8 tokens (hash from catalog) | -93% |
+| Second and beyond | ~121 tokens | 0 extra tokens | -100% |
+| After schema change | ~121 tokens | ~120 tokens (inline schema) | ~same, but no extra round-trip |
+
+The key insight: MCP pays ~121 tokens per tool **per turn**. NEKTE pays once at discovery, then zero for every subsequent invocation.
+
+## Client Usage
+
+```typescript
+const client = new NekteClient('http://localhost:4001');
+
+// First call: discovers L0 catalog, caches hashes
+const catalog = await client.catalog();
+
+// These invocations use the cached hash -- 0 extra tokens each
+const r1 = await client.invoke('sentiment', { input: { text: 'Great!' } });
+const r2 = await client.invoke('sentiment', { input: { text: 'Terrible!' } });
+const r3 = await client.invoke('sentiment', { input: { text: 'Okay.' } });
+// Three invocations, zero schema overhead
+```
+
+## Hash Computation
+
+The hash is deterministic and reproducible across SDKs:
+
+```typescript
+import { canonicalize } from '@nekte/core';
+
+const hash = canonicalize({
+  input: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+  output: { type: 'object', properties: { score: { type: 'number' } } },
+});
+// "a1b2c3d4"
+```
+
+The canonicalization process:
+1. Sort all object keys alphabetically (recursive)
+2. Stringify with `JSON.stringify`
+3. Hash with SHA-256
+4. Take the first 8 hex characters
+
+This ensures the same schema produces the same hash regardless of property ordering or whitespace.
+
+## When Zero-Schema Breaks
+
+Zero-schema invocation relies on hash consistency. It "breaks" (gracefully) when:
+
+- **Schema changes** -- The server returns `VERSION_MISMATCH` with the new schema. The client auto-recovers.
+- **Cache eviction** -- The hash is evicted from the client cache. The client re-discovers at L0.
+- **New capability** -- A capability the client hasn't seen before. The client fetches L1 or L2.
+
+All three cases are handled automatically by the SDK. No manual intervention needed.

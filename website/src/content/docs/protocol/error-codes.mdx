@@ -1,0 +1,194 @@
+---
+title: Error Codes
+description: Complete reference for NEKTE protocol error codes
+sidebar:
+  order: 5
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+All NEKTE errors follow the JSON-RPC 2.0 error format. Protocol-specific errors use codes in the `-32001` to `-32011` range.
+
+## Error Format
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32001,
+    "message": "VERSION_MISMATCH",
+    "data": {
+      "current_hash": "m3n4o5p6",
+      "schema": { "...updated L2 schema..." }
+    }
+  }
+}
+```
+
+The `data` field is optional and carries error-specific context. When present, it provides enough information for the client to recover without an additional round-trip.
+
+---
+
+## Protocol Error Codes
+
+### `-32001` VERSION_MISMATCH
+
+The version hash sent by the client does not match the server's current schema.
+
+**When:** `nekte.invoke` with a stale `version_hash`.
+
+**Recovery:** The error `data` includes the updated schema and current hash. Retry with the new hash immediately -- no extra discovery needed.
+
+```json
+{
+  "code": -32001,
+  "message": "VERSION_MISMATCH",
+  "data": {
+    "current_hash": "m3n4o5p6",
+    "schema": { "id": "sentiment", "input": { "..." }, "output": { "..." } }
+  }
+}
+```
+
+---
+
+### `-32002` CAPABILITY_NOT_FOUND
+
+No capability with the given ID exists on this agent.
+
+**When:** `nekte.invoke` or `nekte.discover` with an unknown capability ID.
+
+**Recovery:** Re-discover capabilities at L0 to refresh the catalog.
+
+---
+
+### `-32003` BUDGET_EXCEEDED
+
+The response would exceed the token budget specified by the client.
+
+**When:** The server cannot produce a response within the `max_tokens` constraint, even at `minimal` detail level.
+
+**Recovery:** Increase the budget or split the request into smaller units.
+
+---
+
+### `-32004` CONTEXT_EXPIRED
+
+The context envelope's TTL has expired.
+
+**When:** `nekte.context` with action `request` for a context whose `ttl_s` has elapsed.
+
+**Recovery:** The sender must share the context again with a new TTL.
+
+---
+
+### `-32005` CONTEXT_PERMISSION_DENIED
+
+The requested operation is not permitted by the context envelope's permission flags.
+
+**When:** Attempting to forward a context with `forward: false`, or persisting a context with `persist: false`.
+
+**Recovery:** Request the context with the needed permissions from the original sender.
+
+---
+
+### `-32006` TASK_TIMEOUT
+
+The task exceeded its `timeout_ms` without completing.
+
+**When:** `nekte.delegate` when the handler runs longer than the specified timeout.
+
+**Recovery:** Retry with a larger timeout, or break the task into smaller subtasks.
+
+---
+
+### `-32007` TASK_FAILED
+
+The task execution failed due to an unrecoverable error in the handler.
+
+**When:** The delegate handler throws an error.
+
+**Recovery:** Check the error `data` for the underlying cause. Fix and retry.
+
+---
+
+### `-32008` VERIFICATION_FAILED
+
+One or more verification checks did not pass.
+
+**When:** `nekte.verify` when a hash check, sample check, or source check fails.
+
+**Recovery:** The error `data` includes which checks failed and why.
+
+---
+
+### `-32009` TASK_NOT_FOUND
+
+No task with the given ID exists in the registry.
+
+**When:** `nekte.task.cancel`, `nekte.task.resume`, or `nekte.task.status` with an unknown task ID.
+
+**Recovery:** The task may have been cleaned up after reaching a terminal state. Use the correct task ID or re-delegate.
+
+---
+
+### `-32010` TASK_NOT_CANCELLABLE
+
+The task is already in a terminal state and cannot be cancelled.
+
+**When:** `nekte.task.cancel` for a task that is `completed`, `failed`, or already `cancelled`.
+
+**Recovery:** No action needed -- the task has already finished.
+
+---
+
+### `-32011` TASK_NOT_RESUMABLE
+
+The task is not in the `suspended` state and cannot be resumed.
+
+**When:** `nekte.task.resume` for a task that is not suspended.
+
+**Recovery:** Check the task status with `nekte.task.status`. Only `suspended` tasks can be resumed.
+
+---
+
+## JSON-RPC Standard Errors
+
+NEKTE also uses standard JSON-RPC 2.0 error codes:
+
+| Code | Name | Description |
+|------|------|-------------|
+| `-32700` | Parse error | Invalid JSON |
+| `-32600` | Invalid request | Missing required JSON-RPC fields |
+| `-32601` | Method not found | Unknown `nekte.*` method |
+| `-32602` | Invalid params | Schema validation failed |
+| `-32603` | Internal error | Unexpected server error |
+
+## Client Handling
+
+The `@nekte/client` SDK throws typed `NekteProtocolError` instances with the code, message, and data:
+
+```typescript
+import { NekteClient, NekteProtocolError } from '@nekte/client';
+
+try {
+  await client.invoke('sentiment', { input: { text: 'Hello' } });
+} catch (err) {
+  if (err instanceof NekteProtocolError) {
+    switch (err.code) {
+      case -32001: // VERSION_MISMATCH
+        // err.data.schema has the updated schema
+        // The client SDK handles this automatically with cache refresh
+        break;
+      case -32002: // CAPABILITY_NOT_FOUND
+        // Re-discover
+        break;
+    }
+  }
+}
+```
+
+<Aside type="tip">
+The `NekteClient` handles `VERSION_MISMATCH` automatically. When a hash mismatch occurs, it updates the internal cache with the new schema and retries the invocation transparently.
+</Aside>

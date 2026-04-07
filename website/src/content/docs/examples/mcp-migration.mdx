@@ -1,0 +1,151 @@
+---
+title: MCP Migration
+description: Migrate from MCP to NEKTE in 5 minutes using the bridge
+---
+
+import { Steps, Aside } from '@astrojs/starlight/components';
+
+If you already have MCP servers, you can start using NEKTE in 5 minutes. No backend changes. No MCP server modifications. Just drop the bridge in front.
+
+## Before: Direct MCP
+
+```
+Agent  <── MCP ──>  MCP Server
+                    (sends all schemas every turn)
+```
+
+With 30 tools and 15 turns, your agent is burning **54,450 tokens** on schema overhead alone.
+
+## After: NEKTE Bridge
+
+```
+Agent  <── NEKTE ──>  Bridge  <── MCP ──>  MCP Server
+                        |
+                  cache + compress
+```
+
+Same 30 tools, 15 turns: **1,155 tokens**. That is a 98% reduction.
+
+## Migration Steps
+
+<Steps>
+
+1. **Install the bridge:**
+
+   ```bash
+   pnpm add @nekte/bridge @nekte/client
+   ```
+
+2. **Create a bridge config** for your MCP servers:
+
+   ```json
+   // bridge.json
+   {
+     "name": "my-company-bridge",
+     "port": 3100,
+     "mcpServers": [
+       {
+         "name": "github",
+         "url": "http://localhost:3000/mcp",
+         "category": "dev"
+       },
+       {
+         "name": "slack",
+         "url": "http://localhost:3001/mcp",
+         "category": "comms"
+       },
+       {
+         "name": "filesystem",
+         "command": "npx",
+         "args": ["-y", "@modelcontextprotocol/server-filesystem", "/workspace"],
+         "category": "fs"
+       }
+     ]
+   }
+   ```
+
+3. **Start the bridge:**
+
+   ```bash
+   npx nekte-bridge --config bridge.json
+   ```
+
+   The bridge connects to all MCP servers, fetches schemas, computes hashes, and starts serving.
+
+4. **Update your agent code:**
+
+   Replace MCP client calls with NEKTE client calls:
+
+   ```diff
+   - import { McpClient } from '@mcp/client';
+   - const client = new McpClient('http://localhost:3000/mcp');
+   - const tools = await client.listTools();  // all schemas, every time
+   - const result = await client.callTool('github_create_issue', { title: 'Bug' });
+   + import { NekteClient } from '@nekte/client';
+   + const client = new NekteClient('http://localhost:3100');
+   + const catalog = await client.catalog();  // just IDs + hashes, once
+   + const result = await client.invoke('github_create_issue', {
+   +   input: { title: 'Bug' },
+   +   budget: { max_tokens: 200, detail_level: 'compact' },
+   + });
+   ```
+
+5. **Verify:**
+
+   ```bash
+   # Check bridge health
+   nekte health http://localhost:3100
+
+   # List all capabilities
+   nekte discover http://localhost:3100
+
+   # Test an invocation
+   nekte invoke http://localhost:3100 github_create_issue -i '{"title":"Test"}'
+   ```
+
+</Steps>
+
+## What Changes
+
+| Aspect | Before (MCP) | After (NEKTE Bridge) |
+|--------|-------------|---------------------|
+| MCP servers | Unchanged | Unchanged |
+| Agent code | MCP client calls | NEKTE client calls |
+| Token cost | ~121 tok/tool/turn | ~8 tok/tool (once) |
+| Response format | Full always | Budget-aware (minimal/compact/full) |
+| Schema caching | None (client-side only) | Server-side + version hash |
+| New infrastructure | None | Bridge process |
+
+## What Does NOT Change
+
+- Your MCP servers run exactly as before
+- MCP server configuration stays the same
+- Tool implementations stay the same
+- Other MCP clients can still connect directly to the MCP servers
+
+The bridge is additive -- it sits alongside your existing MCP setup, not in place of it.
+
+## Gradual Migration
+
+You don't have to migrate everything at once:
+
+1. **Day 1:** Start the bridge against one MCP server. Point one agent at the bridge.
+2. **Week 1:** Add more MCP servers to the bridge config. Monitor token savings via `/health`.
+3. **Week 2:** Migrate remaining agents to use the NEKTE client.
+4. **Later:** If you want native NEKTE (no bridge), implement `NekteServer` directly. The client code does not change.
+
+<Aside>
+The bridge is not a temporary hack. It is a production-grade component with health monitoring, cache metrics, and automatic schema refresh. Many deployments will run the bridge permanently.
+</Aside>
+
+## Cost Impact
+
+For a typical enterprise setup with 50 tools, 20 turns, 1,000 conversations/day:
+
+| | MCP Direct | NEKTE Bridge |
+|---|---|---|
+| Tokens/day | 121,000,000 | 1,620,000 |
+| Cost/month | $10,890 | $146 |
+| **Monthly savings** | | **$10,744** |
+
+That is real money. And the migration takes 5 minutes.

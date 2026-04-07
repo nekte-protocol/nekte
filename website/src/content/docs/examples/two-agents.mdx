@@ -1,0 +1,206 @@
+---
+title: Two-Agent Coordination
+description: End-to-end example of two agents communicating via NEKTE
+---
+
+import { Steps, Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+This example builds two agents -- a coordinator and a worker -- that communicate via NEKTE. The coordinator discovers the worker's capabilities, invokes sentiment analysis, and delegates a batch analysis task with streaming.
+
+## Architecture
+
+```
+Coordinator Agent          Worker Agent (port 4001)
+      |                          |
+      |-- nekte.discover L0 ---->|  (catalog: ~24 tokens)
+      |<---- caps + hashes ------|
+      |                          |
+      |-- nekte.invoke ---------->|  (0 extra tokens)
+      |<---- result (compact) ---|
+      |                          |
+      |-- nekte.delegate ------->|  (streaming)
+      |<---- progress events ----|
+      |<---- complete -----------|
+```
+
+## 1. Worker Agent
+
+<Steps>
+
+1. **Create the worker with capabilities:**
+
+   ```typescript
+   // worker.ts
+   import { z } from 'zod';
+   import { NekteServer } from '@nekte/server';
+
+   const server = new NekteServer({
+     agent: 'nlp-worker',
+     version: '1.0.0',
+   });
+
+   // Register a simple capability
+   server.capability('sentiment', {
+     inputSchema: z.object({ text: z.string() }),
+     outputSchema: z.object({
+       label: z.enum(['positive', 'negative', 'neutral']),
+       score: z.number(),
+     }),
+     category: 'nlp',
+     description: 'Analyze text sentiment',
+     handler: async (input, ctx) => {
+       if (ctx.signal.aborted) throw new Error('Cancelled');
+       const score = input.text.includes('great') ? 0.9 : 0.3;
+       return {
+         label: score > 0.5 ? 'positive' : 'negative',
+         score,
+       };
+     },
+     toMinimal: (out) => `${out.label} ${out.score}`,
+     toCompact: (out) => ({ l: out.label, s: out.score }),
+   });
+
+   // Register a delegate handler for batch tasks
+   server.onDelegate(async (task, stream, context, signal) => {
+     const reviews = [
+       'Great product!',
+       'Terrible experience',
+       'It was okay',
+       'Absolutely love it',
+       'Would not recommend',
+     ];
+
+     const results = [];
+
+     for (let i = 0; i < reviews.length; i++) {
+       if (signal.aborted) {
+         stream.cancelled(task.id, 'running', 'Client cancelled');
+         return;
+       }
+
+       stream.progress(i + 1, reviews.length, `Analyzing review ${i + 1}`);
+       const score = reviews[i].includes('great') || reviews[i].includes('love') ? 0.9 : 0.2;
+       results.push({ text: reviews[i], score });
+
+       await new Promise((r) => setTimeout(r, 200)); // simulate work
+     }
+
+     const avg = results.reduce((s, r) => s + r.score, 0) / results.length;
+
+     stream.complete(task.id, {
+       minimal: `${reviews.length} reviews, avg score ${avg.toFixed(2)}`,
+       compact: { total: reviews.length, avg_score: avg, results },
+     });
+   });
+
+   server.listen(4001);
+   console.log('Worker agent listening on port 4001');
+   ```
+
+2. **Start it:**
+
+   ```bash
+   npx tsx worker.ts
+   ```
+
+</Steps>
+
+## 2. Coordinator Agent
+
+```typescript
+// coordinator.ts
+import { NekteClient } from '@nekte/client';
+
+const client = new NekteClient('http://localhost:4001');
+
+// Step 1: Discover capabilities
+console.log('--- Discovery (L0) ---');
+const catalog = await client.catalog();
+console.log('Agent:', catalog.agent);
+console.log(
+  'Capabilities:',
+  catalog.caps.map((c) => `${c.id} [${c.h}]`),
+);
+
+// Step 2: Invoke sentiment analysis
+console.log('\n--- Invoke ---');
+const result = await client.invoke('sentiment', {
+  input: { text: 'This is a great product!' },
+  budget: { max_tokens: 50, detail_level: 'compact' },
+});
+console.log('Result:', result.out);
+
+// Step 3: Delegate a batch task with streaming
+console.log('\n--- Delegate (streaming) ---');
+const stream = client.delegateStream({
+  id: 'batch-001',
+  desc: 'Analyze all customer reviews',
+  timeout_ms: 30_000,
+  budget: { max_tokens: 500, detail_level: 'compact' },
+});
+
+for await (const event of stream.events) {
+  switch (event.event) {
+    case 'progress':
+      console.log(`  Progress: ${event.data.processed}/${event.data.total} - ${event.data.message}`);
+      break;
+    case 'complete':
+      console.log('  Complete:', event.data.out);
+      break;
+  }
+}
+
+// Step 4: Check task status
+const status = await client.taskStatus('batch-001');
+console.log('\nFinal status:', status.status);
+
+await client.close();
+```
+
+## Running
+
+```bash
+# Terminal 1
+npx tsx worker.ts
+
+# Terminal 2
+npx tsx coordinator.ts
+```
+
+Expected output:
+
+```
+--- Discovery (L0) ---
+Agent: nlp-worker
+Capabilities: [ 'sentiment [a1b2c3d4]' ]
+
+--- Invoke ---
+Result: { l: 'positive', s: 0.9 }
+
+--- Delegate (streaming) ---
+  Progress: 1/5 - Analyzing review 1
+  Progress: 2/5 - Analyzing review 2
+  Progress: 3/5 - Analyzing review 3
+  Progress: 4/5 - Analyzing review 4
+  Progress: 5/5 - Analyzing review 5
+  Complete: { total: 5, avg_score: 0.54, results: [...] }
+
+Final status: completed
+```
+
+## Token Cost Breakdown
+
+| Operation | Tokens |
+|-----------|--------|
+| L0 discovery | ~8 |
+| Invoke (cached hash) | 0 extra |
+| Delegate request | ~30 |
+| 5 progress events | ~50 |
+| Complete event (compact) | ~40 |
+| **Total** | **~128 tokens** |
+
+The same interaction via MCP would cost ~600+ tokens, with schemas re-sent on every turn.
+
+<Aside>
+This demo is included in the repo at `demo/`. Run it with `pnpm demo`.
+</Aside>
