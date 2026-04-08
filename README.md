@@ -233,22 +233,24 @@ NEKTE **does not compete** with existing protocols — it complements them:
 
 ## Roadmap
 
-| Phase | Scope | Timeline |
-|-------|-------|----------|
-| **v0.2** | Spec + TypeScript SDK + MCP Bridge + gRPC + Task Lifecycle | Months 1-2 |
-| v0.3 | `context` full implementation + multi-framework demo | Months 3-4 |
-| v0.4 | `verify` full implementation + public benchmarks | Months 5-6 |
-| v1.0 | Stable spec + Python/Go SDKs + agent registry | Months 7-9 |
+| Phase | Scope | Status |
+|-------|-------|--------|
+| **v0.2** | Spec + TypeScript SDK + MCP Bridge + gRPC + Task Lifecycle | **Current** |
+| **v0.3** | `context` full implementation, advanced cache (SIEVE/GDSF), multi-framework demo | In progress |
+| v0.4 | `verify` full implementation + public benchmarks | Planned |
+| v1.0 | Stable spec + Python/Go SDKs + agent registry | Planned |
 
-## Contributing
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup and guidelines.
-
-## Specification
+## Documentation
 
 - Full protocol specification: [docs/SPEC.md](./docs/SPEC.md)
 - Getting started tutorial: [docs/GETTING_STARTED.md](./docs/GETTING_STARTED.md)
 - Protocol flow diagrams: [docs/PROTOCOL_FLOWS.md](./docs/PROTOCOL_FLOWS.md)
+- Cache architecture: [docs/CACHE_ARCHITECTURE.md](./docs/CACHE_ARCHITECTURE.md)
+- RFC / design rationale: [docs/RFC.md](./docs/RFC.md)
+
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development setup and guidelines.
 
 ## License
 

@@ -26,12 +26,13 @@ pnpm demo
 
 | Package | Description |
 |---------|-------------|
-| `@nekte/core` | Protocol types, Zod schemas, hashing, budget resolution, codec |
-| `@nekte/client` | Client library with lazy discovery and zero-schema cache |
-| `@nekte/server` | Server library with capability registry and HTTP transport |
-| `@nekte/bridge` | MCP-to-NEKTE proxy with compression and caching |
+| `@nekte/core` | Protocol types, Zod schemas, hashing, budget resolution, codec, MessagePack, task state machine |
+| `@nekte/client` | Client library with lazy discovery, zero-schema cache, HTTP/gRPC transports, streaming + cancel |
+| `@nekte/server` | Server library with capability registry, task registry (DDD), HTTP/WS/gRPC transports, auth |
+| `@nekte/bridge` | MCP-to-NEKTE proxy with SIEVE cache, compression, and metrics |
+| `@nekte/cli` | CLI tool: discover, invoke, health, card, bench |
 
-Dependency order: `core` -> `client` / `server` -> `bridge`
+Dependency order: `core` -> `client` / `server` -> `bridge` / `cli`
 
 ## Development Workflow
 
@@ -39,8 +40,9 @@ Dependency order: `core` -> `client` / `server` -> `bridge`
 2. Make your changes
 3. Add tests for new functionality
 4. Run `pnpm test` and `pnpm typecheck`
-5. Run `pnpm format` to format code
-6. Submit a pull request
+5. Run `pnpm lint` and `pnpm format` to lint and format code
+6. Add a changeset (`pnpm changeset`) if your change affects a published package
+7. Submit a pull request
 
 ## Adding a Test
 
