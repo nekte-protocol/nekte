@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/nekte-protocol/nekte/actions/workflows/ci.yml/badge.svg)](https://github.com/nekte-protocol/nekte/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![NEKTE v0.2](https://img.shields.io/badge/NEKTE-v0.2-00f5ff)](https://github.com/nekte-protocol/nekte)
+[![NEKTE v0.3](https://img.shields.io/badge/NEKTE-v0.3-00f5ff)](https://github.com/nekte-protocol/nekte)
 
 > **"El protocolo que no quema tu contexto."**
 
@@ -96,7 +96,7 @@ pnpm demo
 # Run token benchmarks
 pnpm benchmark
 
-# Run tests (111 tests)
+# Run tests (219 TypeScript + 92 Python)
 pnpm test
 ```
 
@@ -235,10 +235,9 @@ NEKTE **does not compete** with existing protocols — it complements them:
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| **v0.2** | Spec + TypeScript SDK + MCP Bridge + gRPC + Task Lifecycle | **Current** |
-| **v0.3** | `context` full implementation, advanced cache (SIEVE/GDSF), multi-framework demo | In progress |
-| v0.4 | `verify` full implementation + public benchmarks | Planned |
-| v1.0 | Stable spec + Python/Go SDKs + agent registry | Planned |
+| **v0.3** | `context`/`verify` full implementation, advanced cache (SIEVE/GDSF), Python SDK, performance benchmarks | **Current** |
+| v0.4 | Multi-framework demos, Go SDK, agent registry | Planned |
+| v1.0 | Stable spec, production hardening, ecosystem tooling | Planned |
 
 ## Documentation
 

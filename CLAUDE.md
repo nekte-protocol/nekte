@@ -7,7 +7,7 @@
 ```bash
 pnpm install
 pnpm build        # Build all packages
-pnpm test         # Run tests (vitest, 111 tests)
+pnpm test         # Run tests (vitest, 219 tests)
 pnpm demo         # Run two-agent demo
 pnpm benchmark    # Run token comparison benchmarks
 ```
