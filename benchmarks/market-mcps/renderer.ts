@@ -433,14 +433,14 @@ function pct(part: number, total: number): string {
 // File writers
 // ---------------------------------------------------------------------------
 
-export function writeJsonReport(report: BenchmarkReport, dir = './benchmarks/market-mcps/results'): string {
+export function writeJsonReport(report: BenchmarkReport, dir = './benchmarks/results'): string {
   mkdirSync(dir, { recursive: true });
   const path = `${dir}/market-mcp-${Date.now()}.json`;
   writeFileSync(path, renderJson(report));
   return path;
 }
 
-export function writeMarkdownReport(report: BenchmarkReport, path = './benchmarks/market-mcps/results/BENCHMARK_RESULTS.md', opts?: MarkdownOptions): void {
+export function writeMarkdownReport(report: BenchmarkReport, path = './benchmarks/results/BENCHMARK_RESULTS.md', opts?: MarkdownOptions): void {
   writeFileSync(path, renderMarkdown(report, opts));
 }
 

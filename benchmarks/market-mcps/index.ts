@@ -132,7 +132,7 @@ async function main() {
       undefined,
       { conversations: conversationComparisons, strategies: strategyComparisons },
     );
-    console.log('Markdown report written to benchmarks/market-mcps/results/BENCHMARK_RESULTS.md');
+    console.log('Markdown report written to benchmarks/results/BENCHMARK_RESULTS.md');
   }
 
   console.log(`\nCompleted in ${elapsed}s\n`);
