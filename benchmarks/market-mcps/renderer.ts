@@ -10,6 +10,7 @@
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { cv } from './stats.js';
 import type { BenchmarkReport, ProtocolId, ScenarioResult, ScalingDataPoint, Stats } from './types.js';
+import type { ConversationComparison } from './conversation-model.js';
 
 // ---------------------------------------------------------------------------
 // ANSI helpers
@@ -314,4 +315,131 @@ export function writeJsonReport(report: BenchmarkReport, dir = './benchmark-resu
 
 export function writeMarkdownReport(report: BenchmarkReport, path = './BENCHMARK_RESULTS.md'): void {
   writeFileSync(path, renderMarkdown(report));
+}
+
+// ---------------------------------------------------------------------------
+// Conversation Model Renderer
+// ---------------------------------------------------------------------------
+
+export function renderConversationModel(comparisons: ConversationComparison[]): void {
+  const out = console.log;
+
+  out(`\n${c.bold}${c.bgBlue}${c.white} REALISTIC CONVERSATION MODEL ${c.reset}`);
+  out(`${c.dim}  Models cumulative context: system prompt + tool schemas + full message history${c.reset}`);
+  out(`${c.dim}  Dynamic budget: compresses under context pressure. Evicts + re-discovers at limit.${c.reset}\n`);
+
+  for (const comp of comparisons) {
+    out(`${c.bold}━━━ ${comp.scenario} (${comp.turn_count} turns, ${comp.tool_count} tools) ━━━${c.reset}`);
+    out(`${c.dim}Goal: ${comp.goal}${c.reset}`);
+    out(`${c.dim}Config: system=${comp.config.system_prompt_tokens}tok, user=${comp.config.user_message_tokens}tok/turn, assistant=${comp.config.assistant_message_tokens}tok/turn${c.reset}`);
+    out(`${c.dim}Context window: ${(comp.config.context_window_limit / 1000).toFixed(0)}K tokens${c.reset}\n`);
+
+    // Summary table
+    out(`  ${pad('Protocol', 18, 'left')} ${pad('Total billed', 13)} ${pad('Evictions', 10)} ${pad('Re-disc', 8)} ${pad('Savings', 8)}`);
+    out(`  ${'─'.repeat(60)}`);
+
+    for (const id of PROTOCOL_ORDER) {
+      const r = comp.results[id];
+      if (!r) continue;
+      const savings = comp.savings[id];
+      const sColor = savingsColor(savings);
+      out(
+        `  ${pad(PROTOCOL_LABELS[id], 18, 'left')} ` +
+        `${pad(formatTokens(r.total_billed_tokens), 13)} ` +
+        `${pad(String(r.evictions), 10)} ` +
+        `${pad(String(r.rediscoveries), 8)} ` +
+        `${sColor}${pad(savings + '%', 8)}${c.reset}`,
+      );
+    }
+    out('');
+
+    // Cumulative growth chart: MCP Native vs NEKTE
+    renderCumulativeChart(comp);
+
+    // Per-turn detail for NEKTE
+    const nekteResult = comp.results['nekte'];
+    if (nekteResult) {
+      out(`  ${c.dim}Per-turn context breakdown (NEKTE):${c.reset}`);
+      out(`  ${pad('#', 3, 'left')} ${pad('Tool', 25, 'left')} ${pad('Schema', 7)} ${pad('History', 8)} ${pad('Result', 7)} ${pad('Total', 8)} ${pad('Cumul.', 8)} ${pad('Ctx%', 5)} ${pad('Budget', 8)}`);
+      out(`  ${'─'.repeat(85)}`);
+      for (const t of nekteResult.turns) {
+        const evictMark = t.eviction_occurred ? `${c.red}⚡${c.reset}` : '  ';
+        const ctxColor = t.context_utilization > 0.8 ? c.red : t.context_utilization > 0.6 ? c.yellow : c.dim;
+        out(
+          `${evictMark}${pad(String(t.turn), 3, 'left')} ` +
+          `${pad(t.tool.slice(0, 25), 25, 'left')} ` +
+          `${pad(formatTokens(t.input_tokens.tool_schemas), 7)} ` +
+          `${pad(formatTokens(t.input_tokens.prior_messages), 8)} ` +
+          `${pad(formatTokens(t.input_tokens.current_tool_result), 7)} ` +
+          `${pad(formatTokens(t.input_tokens.total), 8)} ` +
+          `${pad(formatTokens(t.cumulative_billed), 8)} ` +
+          `${ctxColor}${pad(Math.round(t.context_utilization * 100) + '%', 5)}${c.reset} ` +
+          `${pad(t.effective_budget, 8)}`,
+        );
+      }
+      out('');
+    }
+  }
+
+  // Cross-scenario comparison
+  out(`${c.bold}━━━ CROSS-SCENARIO: Real vs Naive Savings ━━━${c.reset}\n`);
+  out(`  ${pad('Scenario', 22, 'left')} ${pad('Naive sav.', 11)} ${pad('Real sav.', 10)} ${pad('Delta', 7)} ${pad('Why', 30, 'left')}`);
+  out(`  ${'─'.repeat(85)}`);
+
+  for (const comp of comparisons) {
+    const nekteSavings = comp.savings['nekte'];
+    // Naive savings: just schema + response (from the per-turn model)
+    const nativePerTurn = comp.results['mcp_native'];
+    const nektePerTurn = comp.results['nekte'];
+    // Rough naive = total turn costs without context accumulation
+    const naiveNative = nativePerTurn.turns.reduce((s, t) => s + t.input_tokens.tool_schemas + t.input_tokens.current_tool_result, 0);
+    const naiveNekte = nektePerTurn.turns.reduce((s, t) => s + t.input_tokens.tool_schemas + t.input_tokens.current_tool_result, 0);
+    const naiveSavings = naiveNative > 0 ? Math.round(((naiveNative - naiveNekte) / naiveNative) * 100) : 0;
+    const delta = naiveSavings - nekteSavings;
+
+    const reason = delta > 15
+      ? 'context history dominates cost'
+      : delta > 5
+        ? 'system prompt dilutes savings'
+        : 'savings hold under real model';
+
+    out(
+      `  ${pad(comp.scenario, 22, 'left')} ` +
+      `${pad(naiveSavings + '%', 11)} ` +
+      `${pad(nekteSavings + '%', 10)} ` +
+      `${c.yellow}${pad('-' + delta + 'pp', 7)}${c.reset} ` +
+      `${pad(reason, 30, 'left')}`,
+    );
+  }
+  out('');
+}
+
+function renderCumulativeChart(comp: ConversationComparison): void {
+  const out = console.log;
+  const nativeResult = comp.results['mcp_native'];
+  const nekteResult = comp.results['nekte'];
+  if (!nativeResult || !nekteResult) return;
+
+  out(`\n  ${c.bold}Cumulative tokens billed (input) per turn:${c.reset}\n`);
+
+  const maxTokens = nativeResult.turns[nativeResult.turns.length - 1]?.cumulative_billed ?? 1;
+  const chartWidth = 45;
+
+  // Show every turn (or every other turn if >12 turns)
+  const step = comp.turn_count > 12 ? 2 : 1;
+
+  for (let i = 0; i < comp.turn_count; i += step) {
+    const nTurn = nativeResult.turns[i];
+    const kTurn = nekteResult.turns[i];
+    if (!nTurn || !kTurn) continue;
+
+    const label = `T${nTurn.turn}`;
+    const nBar = Math.max(1, Math.round((nTurn.cumulative_billed / maxTokens) * chartWidth));
+    const kBar = Math.max(1, Math.round((kTurn.cumulative_billed / maxTokens) * chartWidth));
+
+    out(`  ${pad(label, 4, 'left')} ${c.red}${'█'.repeat(nBar)}${c.reset} ${formatTokens(nTurn.cumulative_billed)}`);
+    out(`       ${c.green}${'▓'.repeat(kBar)}${c.reset} ${formatTokens(kTurn.cumulative_billed)}`);
+  }
+
+  out(`\n  ${c.red}█${c.reset} MCP Native  ${c.green}▓${c.reset} NEKTE\n`);
 }

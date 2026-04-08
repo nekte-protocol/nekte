@@ -15,13 +15,16 @@
  *   pnpm benchmark:market --runs 50                # Custom run count
  *   pnpm benchmark:market --scaling-only            # Only scaling study
  *   pnpm benchmark:market --fast                   # Quick mode (5 runs, 1 warmup)
+ *   pnpm benchmark:market --no-conversation         # Skip conversation model
  */
 
 import { ALL_SCENARIOS } from './scenarios/index.js';
 import { runAllScenarios, type RunnerConfig } from './runner.js';
 import { runScalingStudy } from './scaling/schema-weight-study.js';
+import { compareProtocols } from './conversation-model.js';
 import {
   renderTerminal,
+  renderConversationModel,
   writeJsonReport,
   writeMarkdownReport,
 } from './renderer.js';
@@ -45,6 +48,7 @@ const verbose = hasFlag('verbose');
 const jsonOutput = hasFlag('json');
 const markdownOutput = hasFlag('markdown');
 const scalingOnly = hasFlag('scaling-only');
+const noConversation = hasFlag('no-conversation');
 const fast = hasFlag('fast');
 const scenarioFilter = getFlagValue('scenario');
 const customRuns = getFlagValue('runs');
@@ -85,6 +89,16 @@ async function main() {
   console.log('Running schema weight scaling study...\n');
   report.scaling = runScalingStudy();
 
+  // Run conversation model (unless disabled)
+  let conversationComparisons: ReturnType<typeof compareProtocols>[] = [];
+  if (!scalingOnly && !noConversation) {
+    console.log('Running realistic conversation model...\n');
+    const scenarios = scenarioFilter
+      ? ALL_SCENARIOS.filter((s) => s.name.toLowerCase().includes(scenarioFilter.toLowerCase()))
+      : ALL_SCENARIOS;
+    conversationComparisons = scenarios.map((s) => compareProtocols(s));
+  }
+
   const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
 
   // Output
@@ -100,6 +114,11 @@ async function main() {
 
   if (!jsonOutput || verbose) {
     renderTerminal(report as Parameters<typeof renderTerminal>[0], verbose);
+  }
+
+  // Conversation model output
+  if (conversationComparisons.length > 0) {
+    renderConversationModel(conversationComparisons);
   }
 
   console.log(`\nCompleted in ${elapsed}s\n`);
