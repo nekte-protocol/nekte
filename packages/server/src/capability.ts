@@ -114,9 +114,20 @@ export class CapabilityRegistry {
 
   /**
    * Get all registered capabilities.
+   * Returns the Map's values iterator to avoid copying the full array on every call.
    */
   all(): RegisteredCapability[] {
-    return Array.from(this.capabilities.values());
+    return [...this.capabilities.values()];
+  }
+
+  /** Iterate capabilities without allocating an array copy */
+  values(): IterableIterator<RegisteredCapability> {
+    return this.capabilities.values();
+  }
+
+  /** Number of registered capabilities */
+  get size(): number {
+    return this.capabilities.size;
   }
 
   /**

@@ -64,6 +64,8 @@ export interface McpConnection {
 
 export class McpConnector {
   private connections = new Map<string, McpConnection>();
+  /** Cached per-server tool signatures to avoid full re-stringify on refresh */
+  private signatureCache = new Map<string, string>();
 
   /**
    * Connect to an MCP server and fetch its tool list.
@@ -78,6 +80,8 @@ export class McpConnector {
     };
 
     this.connections.set(config.name, connection);
+    // Cache the initial signature
+    this.signatureCache.set(config.name, this.toolsSignature(tools));
     return connection;
   }
 
@@ -91,12 +95,13 @@ export class McpConnector {
     for (const [name, conn] of this.connections) {
       try {
         const newTools = await this.fetchTools(conn.config);
-        const oldSig = this.toolsSignature(conn.tools);
         const newSig = this.toolsSignature(newTools);
+        const oldSig = this.signatureCache.get(name);
 
         if (oldSig !== newSig) {
           conn.tools = newTools;
           conn.lastRefresh = Date.now();
+          this.signatureCache.set(name, newSig);
           changed = true;
         }
       } catch (err) {

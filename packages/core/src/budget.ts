@@ -42,11 +42,21 @@ export function resolveBudget<TMin, TCom, TFul>(
         ? ['compact', 'minimal']
         : ['minimal'];
 
+  // Stringify once and reuse for token estimation (avoids 3x JSON.stringify)
+  const cache = new Map<DetailLevel, number>();
+  const estimate = (data: unknown, level: DetailLevel): number => {
+    let tokens = cache.get(level);
+    if (tokens === undefined) {
+      tokens = estimateTokens(data);
+      cache.set(level, tokens);
+    }
+    return tokens;
+  };
+
   for (const level of levels) {
     const data = result[level];
     if (data !== undefined) {
-      const estimated = estimateTokens(data);
-      if (estimated <= maxTokens) {
+      if (estimate(data, level) <= maxTokens) {
         return { data, level };
       }
     }

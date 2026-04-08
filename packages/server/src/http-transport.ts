@@ -129,9 +129,9 @@ function sendJson(res: ServerResponse, status: number, data: unknown): void {
 
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', (chunk: string) => (body += chunk));
-    req.on('end', () => resolve(body));
+    const chunks: Buffer[] = [];
+    req.on('data', (chunk: Buffer) => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks).toString()));
     req.on('error', reject);
   });
 }

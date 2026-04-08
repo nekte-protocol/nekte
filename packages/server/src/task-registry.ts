@@ -130,7 +130,8 @@ export class TaskRegistry {
 
   private emit(event: TaskRegistryEvent): void {
     for (const listener of this.listeners) {
-      listener(event);
+      // Emit asynchronously so slow listeners don't block state transitions
+      queueMicrotask(() => listener(event));
     }
   }
 

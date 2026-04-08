@@ -89,13 +89,21 @@ export class NekteBridge {
   async init(): Promise<void> {
     this.log.info(`Connecting to ${this.config.mcpServers.length} MCP server(s)...`);
 
-    for (const serverConfig of this.config.mcpServers) {
-      try {
+    // Connect to all MCP servers in parallel instead of sequentially
+    const results = await Promise.allSettled(
+      this.config.mcpServers.map(async (serverConfig) => {
         const conn = await this.connector.connect(serverConfig);
         this.log.info(`Connected: ${serverConfig.name}`, { tools: conn.tools.length });
-      } catch (err) {
+        return conn;
+      }),
+    );
+
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result.status === 'rejected') {
+        const serverConfig = this.config.mcpServers[i];
         this.log.error(`Failed: ${serverConfig.name}`, {
-          error: err instanceof Error ? err.message : String(err),
+          error: result.reason instanceof Error ? result.reason.message : String(result.reason),
         });
       }
     }

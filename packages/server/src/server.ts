@@ -96,6 +96,12 @@ export class NekteServer {
   private readonly filterStrategy?: CapabilityFilterStrategy;
   private contexts = new Map<string, ContextEnvelope>();
   private contextTimestamps = new Map<string, number>();
+  private contextCleanupTimer?: ReturnType<typeof setInterval>;
+  /** LRU cache for semantic filter results: query → { caps, timestamp } */
+  private filterCache = new Map<string, { caps: string[]; ts: number }>();
+  private static readonly FILTER_CACHE_TTL_MS = 30_000;
+  private static readonly FILTER_CACHE_MAX = 100;
+  private static readonly CONTEXT_CLEANUP_INTERVAL_MS = 60_000;
 
   constructor(config: NekteServerConfig) {
     this.config = config;
@@ -104,6 +110,27 @@ export class NekteServer {
     this.log = createLogger(`nekte:${config.agent}`, config.logLevel);
     this.auth = config.authHandler ?? noAuth();
     this.filterStrategy = config.filterStrategy;
+
+    // Periodic cleanup of expired contexts
+    this.contextCleanupTimer = setInterval(
+      () => this.cleanupExpiredContexts(),
+      NekteServer.CONTEXT_CLEANUP_INTERVAL_MS,
+    );
+    if (typeof this.contextCleanupTimer === 'object' && 'unref' in this.contextCleanupTimer) {
+      this.contextCleanupTimer.unref();
+    }
+  }
+
+  /** Remove expired contexts proactively instead of relying on lazy TTL checks */
+  private cleanupExpiredContexts(): void {
+    const now = Date.now();
+    for (const [id, ctx] of this.contexts) {
+      const storedAt = this.contextTimestamps.get(id) ?? 0;
+      if ((now - storedAt) / 1000 > ctx.ttl_s) {
+        this.contexts.delete(id);
+        this.contextTimestamps.delete(id);
+      }
+    }
   }
 
   /**
@@ -131,7 +158,7 @@ export class NekteServer {
       nekte: NEKTE_VERSION,
       agent: this.config.agent,
       endpoint,
-      caps: this.registry.all().map((c) => c.id),
+      caps: [...this.registry.values()].map((c) => c.id),
       auth: this.config.auth ?? 'none',
       budget_support: true,
     };
@@ -186,23 +213,44 @@ export class NekteServer {
 
     // Apply semantic/hybrid filtering if strategy is configured and query is present
     if (this.filterStrategy && params.filter?.query) {
-      const filterables: FilterableCapability[] = caps.map((c) => ({
-        id: c.id,
-        category: c.schema.cat,
-        description: c.schema.desc,
-      }));
+      const cacheKey = `${params.filter.query}|${params.filter.top_k ?? ''}|${params.filter.threshold ?? ''}|${params.filter.category ?? ''}`;
+      const cached = this.filterCache.get(cacheKey);
+      const now = Date.now();
 
-      const ranked = await this.filterStrategy.filter(filterables, params.filter.query, {
-        top_k: params.filter.top_k,
-        threshold: params.filter.threshold,
-        category: params.filter.category,
-      });
+      if (cached && now - cached.ts < NekteServer.FILTER_CACHE_TTL_MS) {
+        // Use cached filter results — avoids re-running embeddings
+        const cachedSet = new Set(cached.caps);
+        const cachedOrder = new Map(cached.caps.map((id, i) => [id, i]));
+        caps = caps
+          .filter((c) => cachedSet.has(c.id))
+          .sort((a, b) => (cachedOrder.get(a.id) ?? 0) - (cachedOrder.get(b.id) ?? 0));
+      } else {
+        const filterables: FilterableCapability[] = caps.map((c) => ({
+          id: c.id,
+          category: c.schema.cat,
+          description: c.schema.desc,
+        }));
 
-      const rankedIds = new Set(ranked.map((r) => r.id));
-      const rankedOrder = new Map(ranked.map((r, i) => [r.id, i]));
-      caps = caps
-        .filter((c) => rankedIds.has(c.id))
-        .sort((a, b) => (rankedOrder.get(a.id) ?? 0) - (rankedOrder.get(b.id) ?? 0));
+        const ranked = await this.filterStrategy.filter(filterables, params.filter.query, {
+          top_k: params.filter.top_k,
+          threshold: params.filter.threshold,
+          category: params.filter.category,
+        });
+
+        const rankedIds = new Set(ranked.map((r) => r.id));
+        const rankedOrder = new Map(ranked.map((r, i) => [r.id, i]));
+        caps = caps
+          .filter((c) => rankedIds.has(c.id))
+          .sort((a, b) => (rankedOrder.get(a.id) ?? 0) - (rankedOrder.get(b.id) ?? 0));
+
+        // Cache the ranked IDs for future queries
+        this.filterCache.set(cacheKey, { caps: ranked.map((r) => r.id), ts: now });
+        // Evict oldest if cache is full
+        if (this.filterCache.size > NekteServer.FILTER_CACHE_MAX) {
+          const firstKey = this.filterCache.keys().next().value;
+          if (firstKey !== undefined) this.filterCache.delete(firstKey);
+        }
+      }
     }
 
     return {
@@ -263,15 +311,15 @@ export class NekteServer {
 
     // For now, delegate maps to invoke if a matching capability exists
     // In v0.3, this will support complex task orchestration
-    const caps = this.registry.all();
-    if (caps.length === 0) {
+    if (this.registry.size === 0) {
       throw new Error('No capabilities registered to handle delegation');
     }
 
     // Resolve best matching capability using the configured filter strategy
     // (falls back to KeywordFilterStrategy with scored ranking)
     const strategy = this.filterStrategy ?? new KeywordFilterStrategy();
-    const filterables: FilterableCapability[] = caps.map((c) => ({
+    const allCaps = this.registry.all();
+    const filterables: FilterableCapability[] = allCaps.map((c) => ({
       id: c.id,
       category: c.schema.cat,
       description: c.schema.desc,
@@ -483,7 +531,7 @@ export class NekteServer {
           result.source = {
             agent: this.config.agent,
             version: this.config.version ?? 'unknown',
-            capabilities: this.registry.all().length,
+            capabilities: this.registry.size,
             task_found: !!taskEntry,
             task_status: taskEntry?.status,
           };

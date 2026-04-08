@@ -85,9 +85,18 @@ export async function createGrpcClientTransport(
   const NekteClient = nekteProto.Nekte as new (
     address: string,
     credentials: unknown,
+    options?: Record<string, unknown>,
   ) => Record<string, (...args: unknown[]) => unknown>;
 
-  const client = new NekteClient(config.endpoint, grpc.credentials.createInsecure());
+  const channelOptions: Record<string, unknown> = {
+    // Keepalive: detect dead connections on long-lived delegate streams
+    'grpc.keepalive_time_ms': 20_000,
+    'grpc.keepalive_timeout_ms': 5_000,
+    'grpc.keepalive_permit_without_calls': 1,
+    'grpc.http2.min_time_between_pings_ms': 10_000,
+  };
+
+  const client = new NekteClient(config.endpoint, grpc.credentials.createInsecure(), channelOptions);
 
   // -----------------------------------------------------------------------
   // Param converters (domain → proto request shape)

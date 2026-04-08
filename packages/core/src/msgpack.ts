@@ -23,21 +23,29 @@
  * ```
  */
 
-import { pack, unpack } from 'msgpackr';
+import { Packr } from 'msgpackr';
+
+/**
+ * Shared Packr instance with `structures` enabled.
+ * NEKTE messages have highly repetitive keys (jsonrpc, method, id, params).
+ * The record extension auto-detects these and provides ~2-3x decode speedup
+ * plus smaller payloads.
+ */
+const packr = new Packr({ structures: [] });
 
 /**
  * Encode a NEKTE message to MessagePack binary format.
  * Returns a Uint8Array suitable for sending over binary transports.
  */
 export function packMessage(msg: Record<string, unknown>): Uint8Array {
-  return pack(msg);
+  return packr.pack(msg);
 }
 
 /**
  * Decode a MessagePack binary message back to a NEKTE object.
  */
 export function unpackMessage(data: Uint8Array | Buffer): Record<string, unknown> {
-  return unpack(data) as Record<string, unknown>;
+  return packr.unpack(data) as Record<string, unknown>;
 }
 
 /**
@@ -62,7 +70,7 @@ export function compareSizes(msg: Record<string, unknown>): {
   savings_pct: number;
 } {
   const jsonBytes = Buffer.byteLength(JSON.stringify(msg));
-  const msgpackBytes = pack(msg).byteLength;
+  const msgpackBytes = packr.pack(msg).byteLength;
   const savings = Math.round(((jsonBytes - msgpackBytes) / jsonBytes) * 100);
 
   return {

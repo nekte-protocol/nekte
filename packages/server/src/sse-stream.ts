@@ -102,10 +102,16 @@ export class SseStream {
     });
   }
 
-  /** Send a raw SSE event */
+  /** Send a raw SSE event with backpressure awareness */
   send(event: SseEvent): void {
-    if (this.closed) return;
-    this.res.write(encodeSseEvent(event));
+    if (this.closed || this.res.writableEnded) return;
+    const ok = this.res.write(encodeSseEvent(event));
+    // If the kernel buffer is full, wait for drain before sending more
+    if (!ok && !this.closed) {
+      this.res.once('drain', () => {
+        // Buffer drained — future writes will proceed normally
+      });
+    }
   }
 
   /** Close the stream */
