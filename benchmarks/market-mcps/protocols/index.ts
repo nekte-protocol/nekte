@@ -14,36 +14,89 @@ import { countTokens } from '../tokenizer.js';
 import type { McpToolDef, ProtocolId, ProtocolTurnCost } from '../types.js';
 
 // ---------------------------------------------------------------------------
-// Response compression (mirrors @nekte/bridge compressor)
+// Response compression (faithful to @nekte/bridge compressor.ts)
 // ---------------------------------------------------------------------------
+// The real bridge:
+//  1. Extracts text from MCP content array
+//  2. Parses JSON from the text (if possible)
+//  3. Compresses the PARSED structure (not the raw wrapper)
+// This is critical — without step 2, we'd truncate the JSON string
+// at 200 chars and lose almost all data.
 
-function compactify(value: unknown, depth = 0): unknown {
-  if (depth >= 2) return '[truncated]';
-  if (value === null || value === undefined) return value;
-  if (typeof value !== 'object') {
-    if (typeof value === 'string' && value.length > 200) return value.slice(0, 197) + '...';
-    return value;
-  }
-  if (Array.isArray(value)) {
-    const sliced = value.slice(0, 3).map((v) => compactify(v, depth + 1));
-    if (value.length > 3) return [...sliced, `... +${value.length - 3} more`];
-    return sliced;
-  }
+function flattenForCompact(obj: Record<string, unknown>, depth = 0): Record<string, unknown> {
+  if (depth >= 2) return { _truncated: true };
   const result: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    result[k] = compactify(v, depth + 1);
+  for (const [key, value] of Object.entries(obj)) {
+    if (Array.isArray(value)) {
+      result[key] = value.slice(0, 3).map((item) => {
+        if (typeof item === 'object' && item !== null) {
+          return flattenForCompact(item as Record<string, unknown>, depth + 1);
+        }
+        return item;
+      });
+      if (value.length > 3) result[`${key}_count`] = value.length;
+    } else if (typeof value === 'object' && value !== null) {
+      result[key] = flattenForCompact(value as Record<string, unknown>, depth + 1);
+    } else if (typeof value === 'string' && value.length > 200) {
+      result[key] = value.slice(0, 197) + '...';
+    } else {
+      result[key] = value;
+    }
   }
   return result;
 }
 
+/** Extract the inner data from MCP content wrapper, parsing JSON if possible */
+function extractMcpData(raw: unknown): unknown {
+  if (typeof raw !== 'object' || raw === null) return raw;
+  const obj = raw as Record<string, unknown>;
+  const content = obj.content;
+  if (!Array.isArray(content)) return raw;
+
+  const texts = content
+    .filter((c: Record<string, unknown>) => c.type === 'text' && c.text)
+    .map((c: Record<string, unknown>) => c.text as string);
+  const fullText = texts.join('\n');
+  if (!fullText) return raw;
+
+  // Try to parse as JSON (most MCP responses are JSON)
+  try {
+    return JSON.parse(fullText);
+  } catch {
+    return fullText;
+  }
+}
+
 function compressResponse(raw: unknown, budget: 'minimal' | 'compact' | 'full'): unknown {
   if (budget === 'full') return raw;
+
+  // Step 1: extract inner data (mirrors bridge compressor)
+  const data = extractMcpData(raw);
+
   if (budget === 'minimal') {
-    const text = JSON.stringify(raw).slice(0, 80);
-    return { summary: text };
+    // First meaningful line or first 80 chars (~20 tokens)
+    const text = typeof data === 'string' ? data : JSON.stringify(data);
+    const firstLine = text.split('\n').find((l) => l.trim().length > 0) ?? text;
+    return { text: firstLine.length <= 80 ? firstLine.trim() : firstLine.slice(0, 77).trim() + '...' };
   }
-  // compact
-  return compactify(raw);
+
+  // compact: parse JSON and flatten
+  if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
+    return flattenForCompact(data as Record<string, unknown>);
+  }
+  if (Array.isArray(data)) {
+    const sliced = data.slice(0, 3).map((item) =>
+      typeof item === 'object' && item !== null
+        ? flattenForCompact(item as Record<string, unknown>)
+        : item,
+    );
+    const result: Record<string, unknown> = { items: sliced };
+    if (data.length > 3) result.total_count = data.length;
+    return result;
+  }
+  // Plain text
+  const text = String(data);
+  return { text: text.length > 800 ? text.slice(0, 797) + '...' : text, length: text.length };
 }
 
 // ---------------------------------------------------------------------------
