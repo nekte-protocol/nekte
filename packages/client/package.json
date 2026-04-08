@@ -1,6 +1,6 @@
 {
   "name": "@nekte/client",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "NEKTE client — lazy discovery, zero-schema invocation, budget-aware",
   "type": "module",
   "main": "dist/index.js",
@@ -34,8 +34,12 @@
     "@grpc/proto-loader": "^0.7.0"
   },
   "peerDependenciesMeta": {
-    "@grpc/grpc-js": { "optional": true },
-    "@grpc/proto-loader": { "optional": true }
+    "@grpc/grpc-js": {
+      "optional": true
+    },
+    "@grpc/proto-loader": {
+      "optional": true
+    }
   },
   "files": [
     "dist",

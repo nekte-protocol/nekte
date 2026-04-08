@@ -1,7 +1,7 @@
 {
   "name": "@nekte/bridge",
-  "version": "0.2.0",
-  "description": "NEKTE Bridge \u2014 MCP-to-NEKTE proxy for 90%+ token savings",
+  "version": "0.3.0",
+  "description": "NEKTE Bridge — MCP-to-NEKTE proxy for 90%+ token savings",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
