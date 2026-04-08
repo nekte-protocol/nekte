@@ -9,7 +9,12 @@ import { z } from 'zod';
 import { createServer, type Server } from 'node:http';
 import { NekteServer } from '../server.js';
 import { NekteClient } from '@nekte/client';
-import type { CapabilityFilterStrategy, FilterableCapability, FilteredCapability, FilterOptions } from '@nekte/core';
+import type {
+  CapabilityFilterStrategy,
+  FilterableCapability,
+  FilteredCapability,
+  FilterOptions,
+} from '@nekte/core';
 
 let server: NekteServer;
 let httpServer: Server;
@@ -87,7 +92,11 @@ describe('Delegate Resolution', () => {
       id: 1,
       method: 'nekte.delegate',
       params: {
-        task: { id: 'task-1', desc: 'sentiment', budget: { max_tokens: 500, detail_level: 'compact' } },
+        task: {
+          id: 'task-1',
+          desc: 'sentiment',
+          budget: { max_tokens: 500, detail_level: 'compact' },
+        },
       },
     });
 
@@ -103,7 +112,11 @@ describe('Delegate Resolution', () => {
       id: 2,
       method: 'nekte.delegate',
       params: {
-        task: { id: 'task-2', desc: 'summarize long text', budget: { max_tokens: 500, detail_level: 'compact' } },
+        task: {
+          id: 'task-2',
+          desc: 'summarize long text',
+          budget: { max_tokens: 500, detail_level: 'compact' },
+        },
       },
     });
 
@@ -118,7 +131,11 @@ describe('Delegate Resolution', () => {
       id: 3,
       method: 'nekte.delegate',
       params: {
-        task: { id: 'task-3', desc: 'xyznonexistent', budget: { max_tokens: 500, detail_level: 'compact' } },
+        task: {
+          id: 'task-3',
+          desc: 'xyznonexistent',
+          budget: { max_tokens: 500, detail_level: 'compact' },
+        },
       },
     });
 
@@ -136,7 +153,11 @@ describe('Delegate Resolution', () => {
       id: 4,
       method: 'nekte.delegate',
       params: {
-        task: { id: 'task-4', desc: 'analyze sentiment of text', budget: { max_tokens: 500, detail_level: 'compact' } },
+        task: {
+          id: 'task-4',
+          desc: 'analyze sentiment of text',
+          budget: { max_tokens: 500, detail_level: 'compact' },
+        },
       },
     });
 
@@ -169,7 +190,11 @@ describe('Delegate Resolution', () => {
       id: 5,
       method: 'nekte.delegate',
       params: {
-        task: { id: 'task-5', desc: 'sentiment analysis', budget: { max_tokens: 500, detail_level: 'compact' } },
+        task: {
+          id: 'task-5',
+          desc: 'sentiment analysis',
+          budget: { max_tokens: 500, detail_level: 'compact' },
+        },
       },
     });
 

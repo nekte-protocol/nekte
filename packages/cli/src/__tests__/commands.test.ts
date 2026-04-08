@@ -95,7 +95,15 @@ describe('cmdInvoke', () => {
 
   it('passes custom budget and detail level', async () => {
     const client = mockClient();
-    await cmdInvoke(client, ['echo', '--input', '{"msg":"hi"}', '--budget', '100', '--detail', 'minimal']);
+    await cmdInvoke(client, [
+      'echo',
+      '--input',
+      '{"msg":"hi"}',
+      '--budget',
+      '100',
+      '--detail',
+      'minimal',
+    ]);
 
     expect(client.invoke).toHaveBeenCalledWith('echo', {
       input: { msg: 'hi' },
@@ -202,7 +210,10 @@ describe('printCapability', () => {
   });
 
   it('prints description for L1', () => {
-    printCapability({ id: 'echo', cat: 'util', h: 'abc123', desc: 'Echo back', cost: { avg_ms: 5 } }, 1);
+    printCapability(
+      { id: 'echo', cat: 'util', h: 'abc123', desc: 'Echo back', cost: { avg_ms: 5 } },
+      1,
+    );
     expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Echo back'));
   });
 
