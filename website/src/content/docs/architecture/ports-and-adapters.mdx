@@ -1,0 +1,173 @@
+---
+title: Ports and Adapters
+description: Port contracts and adapter implementations in NEKTE
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+## What are Ports?
+
+Ports are interfaces that define how the application layer communicates with the outside world. They live in the domain/core layer and have zero knowledge of concrete implementations.
+
+NEKTE defines **5 core ports**:
+
+| Port | Direction | Package | Purpose |
+|---|---|---|---|
+| `Transport` | Outbound | `@nekte/client` | Send requests, receive responses |
+| `DelegateHandler` | Inbound | `@nekte/server` | Handle delegated tasks with streaming |
+| `CacheStore` | Outbound | `@nekte/client` | Store/retrieve cached capabilities |
+| `AuthHandler` | Inbound | `@nekte/server` | Authenticate incoming requests |
+| `StreamWriter` | Outbound | `@nekte/server` | Write SSE/gRPC streaming events |
+
+## Port Contracts
+
+### Transport (Client-side)
+
+The primary outbound port for the client. Every transport must implement request-response semantics.
+
+```typescript
+// @nekte/client
+export interface Transport {
+  request(req: NekteRequest): Promise<NekteResponse>;
+  close(): Promise<void>;
+}
+```
+
+**Adapters:**
+- `HttpTransport` — HTTP POST with JSON or MessagePack
+- `GrpcClientTransport` — gRPC unary calls + server-streaming for delegate
+
+### DelegateHandler (Server-side)
+
+The inbound port for task delegation with streaming. Handlers receive a stream writer, context, and abort signal.
+
+```typescript
+// @nekte/server
+export type DelegateHandler = (
+  task: DelegateTask,
+  stream: StreamWriter,
+  context: HandlerContext,
+  signal: AbortSignal,
+) => Promise<void>;
+```
+
+<Aside type="caution">
+The `signal` parameter is required. Every handler must check `signal.aborted` during long-running operations to support cooperative cancellation.
+</Aside>
+
+### CacheStore
+
+Outbound port for capability caching. The application layer calls this port; the adapter decides storage (memory, Redis, etc.).
+
+```typescript
+// @nekte/client
+export interface CacheStore {
+  get(key: string): CacheGetResult | undefined;
+  set(key: string, value: CachedCapability, ttl: number): void;
+  delete(key: string): void;
+  clear(): void;
+}
+```
+
+**Adapters:**
+- `InMemoryCacheStore` — SIEVE eviction + GDSF token-cost weighting
+
+### AuthHandler
+
+Inbound port for request authentication. Returns the validated identity or throws.
+
+```typescript
+// @nekte/server
+export interface AuthHandler {
+  authenticate(req: IncomingMessage): Promise<AuthResult>;
+}
+```
+
+**Adapters:**
+- `bearerAuth(validate)` — Bearer token validation
+- `apiKeyAuth(validate)` — API key in header
+- `noAuth()` — Pass-through (development)
+
+### StreamWriter (SSE/gRPC)
+
+Outbound port for streaming delegate events. The server writes events; the transport decides encoding.
+
+```typescript
+// @nekte/server
+export interface StreamWriter {
+  progress(data: ProgressEvent): void;
+  partial(data: PartialEvent): void;
+  complete(data: CompleteEvent): void;
+  cancelled(data: CancelledEvent): void;
+  suspended(data: SuspendedEvent): void;
+  resumed(data: ResumedEvent): void;
+  error(data: ErrorEvent): void;
+}
+```
+
+**Adapters:**
+- `SseStream` — Server-Sent Events over HTTP
+- `GrpcDelegateStream` — gRPC server-streaming
+
+## Adapter Implementations
+
+### HttpTransport
+
+The default client transport. Sends JSON-RPC requests over HTTP POST.
+
+```typescript
+import { NekteClient } from '@nekte/client';
+
+// Default: uses HttpTransport automatically
+const client = new NekteClient('http://localhost:4001');
+```
+
+### GrpcTransport
+
+Native gRPC with protobuf encoding. Uses server-streaming for delegate operations.
+
+<Tabs>
+  <TabItem label="Client">
+    ```typescript
+    import { NekteClient, createGrpcClientTransport } from '@nekte/client';
+
+    const transport = createGrpcClientTransport('localhost:50051');
+    const client = new NekteClient('grpc://localhost:50051', { transport });
+    ```
+  </TabItem>
+  <TabItem label="Server">
+    ```typescript
+    import { createGrpcTransport } from '@nekte/server';
+
+    const grpc = createGrpcTransport(server, { port: 50051 });
+    await grpc.start();
+    ```
+  </TabItem>
+</Tabs>
+
+### InMemoryCacheStore
+
+Combines SIEVE eviction with GDSF token-cost weighting. L2 schemas (120 tokens) survive eviction over L0 refs (8 tokens).
+
+```typescript
+import { NekteClient } from '@nekte/client';
+
+const client = new NekteClient('http://localhost:4001', {
+  cache: {
+    maxEntries: 1000,
+    defaultTtlMs: 300_000, // 5 min
+    swr: true,             // stale-while-revalidate
+  },
+});
+```
+
+## The Anti-Corruption Layer
+
+Each adapter includes an anti-corruption layer that translates between external representations and domain types:
+
+- **gRPC**: `fromProtoDiscoverRequest()` / `toProtoDiscoverResponse()` convert between protobuf and domain types
+- **HTTP**: JSON-RPC envelope wrapping/unwrapping
+- **SSE**: Event type discrimination and serialization
+- **MCP Bridge**: Full MCP-to-NEKTE translation with schema compression
+
+This ensures that domain logic never depends on wire format details.

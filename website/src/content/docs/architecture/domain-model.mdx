@@ -1,0 +1,146 @@
+---
+title: Domain Model
+description: DDD patterns in NEKTE — aggregate roots, value objects, and domain services
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## DDD Mapping
+
+NEKTE's domain model follows Domain-Driven Design patterns. Every protocol concept maps to a DDD building block:
+
+| DDD Pattern | NEKTE Concept | Package | Key File |
+|---|---|---|---|
+| **Value Object** | `TokenBudget`, `CapabilityRef`, `CapabilitySummary`, `CapabilitySchema`, `SseEvent` | `@nekte/core` | `types.ts` |
+| **Aggregate Root** | `TaskEntry` | `@nekte/core` | `task.ts` |
+| **Domain Service** | `CapabilityRegistry`, `TaskRegistry` | `@nekte/server` | `capability.ts`, `task-registry.ts` |
+| **Domain Event** | SSE events (`progress`, `partial`, `complete`, `cancelled`, `suspended`, `resumed`) | `@nekte/core` | `sse.ts` |
+| **Repository** | `TaskRegistry` (stores + queries task entries) | `@nekte/server` | `task-registry.ts` |
+| **Factory** | `computeVersionHash()`, `createBudget()` | `@nekte/core` | `hash.ts`, `budget.ts` |
+| **Policy** | SIEVE eviction, GDSF token-cost weighting | `@nekte/core` | `cache/sieve-policy.ts`, `cache/token-cost.ts` |
+
+## Value Objects
+
+Value objects are immutable and carry protocol semantics. They have no identity -- two budgets with the same values are equal.
+
+```typescript
+// Immutable via readonly — enforced at compile time
+export interface TokenBudget {
+  readonly max_tokens: number;
+  readonly detail_level: 'minimal' | 'compact' | 'full';
+}
+
+// Progressive capability levels — each extends the previous
+export interface CapabilityRef {
+  readonly id: string;
+  readonly cat: string;
+  readonly h: string; // version hash
+}
+
+export interface CapabilitySummary extends CapabilityRef {
+  readonly desc: string;
+  readonly cost?: { avg_ms?: number; avg_tokens?: number };
+}
+
+export interface CapabilitySchema extends CapabilitySummary {
+  readonly input: Record<string, unknown>;
+  readonly output: Record<string, unknown>;
+  readonly examples?: Array<{ in: Record<string, unknown>; out: Record<string, unknown> }>;
+}
+```
+
+<Aside type="tip">
+The progressive `CapabilityRef → CapabilitySummary → CapabilitySchema` hierarchy maps directly to L0/L1/L2 discovery levels. Each level adds more tokens but more detail.
+</Aside>
+
+## TaskEntry — Aggregate Root
+
+`TaskEntry` is the only aggregate root in NEKTE. It owns the task lifecycle state machine and enforces transition rules:
+
+```typescript
+// core/src/task.ts
+export class TaskEntry {
+  readonly id: string;
+  private _status: TaskStatus;
+  private _checkpoint?: Record<string, unknown>;
+  private abortController: AbortController;
+
+  get status(): TaskStatus { return this._status; }
+  get signal(): AbortSignal { return this.abortController.signal; }
+
+  transition(to: TaskStatus): void {
+    if (!VALID_TRANSITIONS[this._status]?.includes(to)) {
+      throw new TaskTransitionError(this._status, to);
+    }
+    this._status = to;
+    if (to === 'cancelled') this.abortController.abort();
+  }
+
+  saveCheckpoint(data: Record<string, unknown>): void {
+    this._checkpoint = data;
+  }
+}
+```
+
+**Invariants enforced by the aggregate:**
+
+1. Only valid state transitions are allowed (see [Task Lifecycle](/protocol/task-lifecycle))
+2. Cancellation fires the `AbortSignal` -- handlers detect this cooperatively
+3. Checkpoints are only meaningful for suspended tasks
+4. Once in a terminal state (`completed`, `failed`, `cancelled`), no further transitions
+
+## Domain Services
+
+### CapabilityRegistry
+
+Owns capability registration, schema generation, and invocation. This is both a domain service (validates schemas, computes hashes) and a repository (stores registered capabilities).
+
+```typescript
+// server/src/capability.ts
+export class CapabilityRegistry {
+  register(id, config): RegisteredCapability  // Validate + store
+  get(id): RegisteredCapability | undefined   // Lookup
+  all(): RegisteredCapability[]               // List
+  filter(opts): RegisteredCapability[]        // Query
+  invoke(id, input, ctx): MultiLevelResult    // Validate + execute + project
+}
+```
+
+### TaskRegistry
+
+Manages the lifecycle of delegated tasks. Creates `TaskEntry` aggregate roots and enforces state transitions.
+
+```typescript
+// server/src/task-registry.ts
+export class TaskRegistry {
+  register(task): TaskEntry          // Create + store
+  get(taskId): TaskEntry | undefined // Lookup
+  cancel(taskId, reason): void       // Transition + abort
+  resume(taskId): TaskEntry          // Transition to running
+  status(taskId): TaskStatus         // Query
+}
+```
+
+## Domain Policies (Pure Algorithms)
+
+Cache policies live in the domain layer because they are pure algorithms with no I/O:
+
+### SIEVE Eviction
+
+O(1) amortized eviction with scan resistance (NSDI 2024). Better than LRU for mixed workloads because it doesn't promote items on every access.
+
+### GDSF Token-Cost Weighting
+
+Greedy-Dual-Size-Frequency adapted for token budgets. Keeps high-value items (L2 schemas at ~120 tokens) over low-value items (L0 refs at ~8 tokens) when cache is full.
+
+Both are implemented as pure functions in `@nekte/core/cache/` with no dependency on the cache store implementation.
+
+## Cross-SDK Conformance
+
+The domain model is designed for cross-SDK consistency. Key invariants:
+
+- `canonicalize()` produces the same byte sequence in TypeScript and Python
+- `computeVersionHash()` produces the same 8-char hex string for the same schemas
+- State machine transitions are validated identically
+
+Conformance is verified via shared test vectors in `core/__tests__/conformance/hash_vectors.json`.

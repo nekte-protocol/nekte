@@ -36,6 +36,7 @@ import {
 import { projectCapability } from '@nekte/core';
 import { CapabilityRegistry, type CapabilityConfig, type HandlerContext } from './capability.js';
 import { noAuth, type AuthHandler } from './auth.js';
+import { KeywordFilterStrategy } from '@nekte/core';
 import type { CapabilityFilterStrategy, FilterableCapability } from '@nekte/core';
 import type { SseStream } from './sse-stream.js';
 import {
@@ -267,13 +268,19 @@ export class NekteServer {
       throw new Error('No capabilities registered to handle delegation');
     }
 
-    // Find best matching capability based on task description
-    // Simple heuristic: first capability that matches any word in the description
-    // TODO(v0.3): Replace naive keyword matching with proper capability resolution
-    const words = params.task.desc.toLowerCase().split(/\s+/);
-    const match = caps.find((c) =>
-      words.some((w) => c.id.toLowerCase().includes(w) || c.schema.desc.toLowerCase().includes(w)),
-    );
+    // Resolve best matching capability using the configured filter strategy
+    // (falls back to KeywordFilterStrategy with scored ranking)
+    const strategy = this.filterStrategy ?? new KeywordFilterStrategy();
+    const filterables: FilterableCapability[] = caps.map((c) => ({
+      id: c.id,
+      category: c.schema.cat,
+      description: c.schema.desc,
+    }));
+    const ranked = await strategy.filter(filterables, params.task.desc, {
+      top_k: 1,
+      threshold: 0.1,
+    });
+    const match = ranked.length > 0 ? this.registry.get(ranked[0].id) : undefined;
 
     if (!match) {
       return {

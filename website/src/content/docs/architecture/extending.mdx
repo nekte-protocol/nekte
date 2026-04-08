@@ -1,0 +1,241 @@
+---
+title: Extending NEKTE
+description: How to add custom transports, cache stores, and filter strategies
+---
+
+import { Tabs, TabItem, Aside } from '@astrojs/starlight/components';
+
+## Adding a Custom Transport
+
+Every transport implements the `Transport` port interface. Here's how to build one for a hypothetical QUIC transport.
+
+### Step 1: Implement the Port
+
+```typescript
+// my-quic-transport.ts
+import type { Transport } from '@nekte/client';
+import type { NekteRequest, NekteResponse } from '@nekte/core';
+
+export class QuicTransport implements Transport {
+  private connection: QuicConnection;
+
+  constructor(private endpoint: string) {
+    this.connection = createQuicConnection(endpoint);
+  }
+
+  async request(req: NekteRequest): Promise<NekteResponse> {
+    const stream = await this.connection.openBidiStream();
+    stream.write(JSON.stringify(req));
+
+    const data = await stream.read();
+    return JSON.parse(data) as NekteResponse;
+  }
+
+  async close(): Promise<void> {
+    await this.connection.close();
+  }
+}
+```
+
+### Step 2: Inject into Client
+
+```typescript
+import { NekteClient } from '@nekte/client';
+import { QuicTransport } from './my-quic-transport.js';
+
+const transport = new QuicTransport('quic://agent.example.com:4433');
+const client = new NekteClient('quic://agent.example.com:4433', { transport });
+
+// All operations now use QUIC
+const caps = await client.catalog();
+```
+
+### Step 3: Add Server-Side Support (Optional)
+
+For server-side transports, follow the pattern in `http-transport.ts` or `grpc-transport.ts`:
+
+```typescript
+import type { NekteServer } from '@nekte/server';
+
+export function createQuicTransport(server: NekteServer, opts: { port: number }) {
+  const quicServer = createQuicServer({ port: opts.port });
+
+  quicServer.on('stream', async (stream) => {
+    const data = await stream.read();
+    const request = JSON.parse(data);
+    const response = await server.handleRequest(request);
+    stream.write(JSON.stringify(response));
+  });
+
+  return {
+    start: () => quicServer.listen(),
+    close: () => quicServer.close(),
+  };
+}
+```
+
+## Adding a Custom Cache Store
+
+Cache stores implement the `CacheStore` interface. Here's a Redis-backed implementation.
+
+### Step 1: Implement the Port
+
+```typescript
+// redis-cache-store.ts
+import type { CacheStore, CacheGetResult, CachedCapability } from '@nekte/client';
+import { createClient } from 'redis';
+
+export class RedisCacheStore implements CacheStore {
+  private redis;
+
+  constructor(url: string) {
+    this.redis = createClient({ url });
+  }
+
+  async connect() {
+    await this.redis.connect();
+  }
+
+  get(key: string): CacheGetResult | undefined {
+    // Note: for sync interface, use a local Map as L1 cache
+    // backed by Redis as L2. See SharedInMemoryCache for pattern.
+    return this.localCache.get(key);
+  }
+
+  set(key: string, value: CachedCapability, ttl: number): void {
+    this.localCache.set(key, { value, status: 'fresh' });
+    // Async write-through to Redis
+    this.redis.set(
+      `nekte:${key}`,
+      JSON.stringify(value),
+      { EX: Math.ceil(ttl / 1000) },
+    ).catch(() => {}); // best-effort
+  }
+
+  delete(key: string): void {
+    this.localCache.delete(key);
+    this.redis.del(`nekte:${key}`).catch(() => {});
+  }
+
+  clear(): void {
+    this.localCache.clear();
+  }
+}
+```
+
+### Step 2: Inject into Client
+
+```typescript
+import { NekteClient } from '@nekte/client';
+import { RedisCacheStore } from './redis-cache-store.js';
+
+const cacheStore = new RedisCacheStore('redis://localhost:6379');
+await cacheStore.connect();
+
+const client = new NekteClient('http://localhost:4001', {
+  sharedCache: cacheStore,
+});
+```
+
+## Adding a Custom Filter Strategy
+
+Filter strategies implement `CapabilityFilterStrategy`. Useful for domain-specific capability matching.
+
+### Step 1: Implement the Port
+
+```typescript
+// embedding-filter.ts
+import type {
+  CapabilityFilterStrategy,
+  FilterableCapability,
+  FilteredCapability,
+  FilterOptions,
+} from '@nekte/core';
+
+export class EmbeddingFilterStrategy implements CapabilityFilterStrategy {
+  constructor(private embeddingService: EmbeddingService) {}
+
+  async filter(
+    capabilities: FilterableCapability[],
+    query: string,
+    options?: FilterOptions,
+  ): Promise<FilteredCapability[]> {
+    // Get embedding for the query
+    const queryEmbed = await this.embeddingService.embed(query);
+
+    // Score each capability by cosine similarity
+    const scored = await Promise.all(
+      capabilities.map(async (cap) => {
+        const capEmbed = await this.embeddingService.embed(
+          `${cap.id}: ${cap.description}`
+        );
+        return {
+          id: cap.id,
+          score: cosineSimilarity(queryEmbed, capEmbed),
+        };
+      }),
+    );
+
+    // Filter and sort
+    const threshold = options?.threshold ?? 0.3;
+    const topK = options?.top_k ?? 10;
+
+    return scored
+      .filter((r) => r.score >= threshold)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, topK);
+  }
+}
+```
+
+### Step 2: Inject into Server
+
+```typescript
+import { NekteServer } from '@nekte/server';
+import { EmbeddingFilterStrategy } from './embedding-filter.js';
+
+const server = new NekteServer({
+  agent: 'my-agent',
+  filterStrategy: new EmbeddingFilterStrategy(myEmbeddingService),
+});
+```
+
+<Aside type="tip">
+NEKTE ships with three built-in strategies: `KeywordFilterStrategy`, `SemanticFilterStrategy`, and `HybridFilterStrategy`. The hybrid strategy combines keyword and semantic scores with configurable weights (default: 0.3 keyword, 0.7 semantic).
+</Aside>
+
+## Adding a Custom Auth Handler
+
+```typescript
+import type { AuthHandler, AuthResult } from '@nekte/server';
+import type { IncomingMessage } from 'node:http';
+
+export function jwtAuth(secret: string): AuthHandler {
+  return {
+    async authenticate(req: IncomingMessage): Promise<AuthResult> {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      if (!token) throw new Error('Missing token');
+
+      const payload = verifyJwt(token, secret);
+      return { identity: payload.sub, claims: payload };
+    },
+  };
+}
+
+// Usage
+const server = new NekteServer({
+  agent: 'secure-agent',
+  auth: 'bearer',
+  authHandler: jwtAuth(process.env.JWT_SECRET!),
+});
+```
+
+## Pattern Summary
+
+Every extension follows the same pattern:
+
+1. **Implement the port interface** (no imports from NEKTE internals)
+2. **Inject via constructor/config** (dependency inversion)
+3. **Domain logic unchanged** (the extension only affects the adapter layer)
+
+This is the core benefit of hexagonal architecture: you can swap any infrastructure component without touching business logic.

@@ -1,0 +1,55 @@
+---
+title: API Reference
+description: Auto-generated TypeScript API documentation for NEKTE packages
+---
+
+## TypeScript SDK
+
+The NEKTE TypeScript SDK is organized into three main packages:
+
+### @nekte/core
+
+The domain layer containing types, schemas, hashing, budget resolution, cache policies, filtering strategies, SSE events, task lifecycle, and MessagePack codec.
+
+- **Types**: `TokenBudget`, `CapabilityRef`, `CapabilitySummary`, `CapabilitySchema`, `AgentCard`, `ContextEnvelope`
+- **Hash**: `canonicalize()`, `computeVersionHash()`
+- **Budget**: `createBudget()`, `resolveBudget()`, `estimateTokens()`
+- **Codec**: `projectCapability()`, `buildMultiLevelResult()`, `compareSizes()`
+- **Cache**: `SievePolicy`, `tokenCostWeight()`
+- **Filtering**: `KeywordFilterStrategy`, `SemanticFilterStrategy`, `HybridFilterStrategy`
+- **Task**: `TaskEntry`, `TaskStatus`, `VALID_TRANSITIONS`
+- **SSE**: `SseEventType`, `encodeSseEvent()`, `parseSseEvent()`
+
+### @nekte/client
+
+The application + adapter layer for consuming NEKTE agents.
+
+- **Client**: `NekteClient`, `NekteClientConfig`
+- **Cache**: `CapabilityCache`, `InMemoryCacheStore`, `SharedInMemoryCache`
+- **Transport**: `Transport`, `HttpTransport`, `GrpcClientTransport`
+- **Utilities**: `RequestCoalescer`, `NekteProtocolError`
+
+### @nekte/server
+
+The application + adapter layer for building NEKTE agents.
+
+- **Server**: `NekteServer`, `NekteServerConfig`
+- **Registry**: `CapabilityRegistry`, `TaskRegistry`
+- **Transport**: `createHttpTransport()`, `createGrpcTransport()`, `createWsTransport()`
+- **Auth**: `bearerAuth()`, `apiKeyAuth()`, `noAuth()`
+- **Streaming**: `SseStream`, `GrpcDelegateStream`, `DelegateHandler`
+
+## Generating Detailed Docs
+
+To regenerate the detailed TypeScript API docs from source:
+
+```bash
+cd website
+pnpm generate:api
+```
+
+This uses [TypeDoc](https://typedoc.org/) to extract type information from the TypeScript source and generate markdown pages.
+
+## Python SDK
+
+The Python SDK is under development. API documentation will be available once `nekte-python` is released.

@@ -7,3 +7,9 @@ dist/
 coverage/
 *.tgz
 .pnpm-store/
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/

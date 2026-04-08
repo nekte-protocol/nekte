@@ -97,7 +97,7 @@ async function main() {
 // Commands
 // ---------------------------------------------------------------------------
 
-async function cmdDiscover(client: NekteClient, args: string[]) {
+export async function cmdDiscover(client: NekteClient, args: string[]) {
   const level = (parseArg(args, '--level', '-l') ?? '0') as string;
   const filter = parseArg(args, '--filter', '-f');
   const category = parseArg(args, '--category', '-c');
@@ -122,7 +122,7 @@ async function cmdDiscover(client: NekteClient, args: string[]) {
   console.log(`\n~${estimateTokens(result)} tokens`);
 }
 
-async function cmdInvoke(client: NekteClient, args: string[]) {
+export async function cmdInvoke(client: NekteClient, args: string[]) {
   const capId = args[0];
   if (!capId) {
     console.error('Error: capability ID is required');
@@ -162,7 +162,7 @@ async function cmdInvoke(client: NekteClient, args: string[]) {
   console.log(`\n~${estimateTokens(result.out)} tokens`);
 }
 
-async function cmdHealth(url: string) {
+export async function cmdHealth(url: string) {
   const res = await fetch(`${url.replace(/\/$/, '')}/health`);
   if (!res.ok) {
     console.error(`Health check failed: HTTP ${res.status}`);
@@ -172,12 +172,12 @@ async function cmdHealth(url: string) {
   console.log(JSON.stringify(data, null, 2));
 }
 
-async function cmdCard(client: NekteClient) {
+export async function cmdCard(client: NekteClient) {
   const card = await client.agentCard();
   console.log(JSON.stringify(card, null, 2));
 }
 
-async function cmdBench(client: NekteClient) {
+export async function cmdBench(client: NekteClient) {
   const result = await client.discover({ level: 0 });
   const sizes = compareSizes(result as unknown as Record<string, unknown>);
 
@@ -191,7 +191,7 @@ async function cmdBench(client: NekteClient) {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function parseArg(args: string[], long: string, short: string): string | null {
+export function parseArg(args: string[], long: string, short: string): string | null {
   for (let i = 0; i < args.length; i++) {
     if (args[i] === long || args[i] === short) {
       return args[i + 1] ?? null;
@@ -200,7 +200,7 @@ function parseArg(args: string[], long: string, short: string): string | null {
   return null;
 }
 
-function printCapability(cap: Capability, level: DiscoveryLevel) {
+export function printCapability(cap: Capability, level: DiscoveryLevel) {
   console.log(`  ${cap.id}  [${cap.cat}]  h:${cap.h}`);
   if (level >= 1 && 'desc' in cap) {
     console.log(`    ${(cap as CapabilitySummary).desc}`);
@@ -219,4 +219,12 @@ function printCapability(cap: Capability, level: DiscoveryLevel) {
   }
 }
 
-main();
+// Only run when executed directly (not when imported for testing)
+const isDirectRun =
+  typeof process !== 'undefined' &&
+  process.argv[1] &&
+  (process.argv[1].endsWith('/nekte') || process.argv[1].endsWith('/index.js') || process.argv[1].endsWith('/index.ts'));
+
+if (isDirectRun) {
+  main();
+}

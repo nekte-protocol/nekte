@@ -5,11 +5,16 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
+    "generate:api": "typedoc --plugin typedoc-plugin-markdown --out src/content/docs/api/typescript --entryPoints ../packages/core/src/index.ts ../packages/client/src/index.ts ../packages/server/src/index.ts --tsconfig ../tsconfig.json --skipErrorChecking",
     "preview": "astro preview"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.32",
     "astro": "^5.0",
     "sharp": "^0.33"
+  },
+  "devDependencies": {
+    "typedoc": "^0.28.18",
+    "typedoc-plugin-markdown": "^4.11.0"
   }
 }

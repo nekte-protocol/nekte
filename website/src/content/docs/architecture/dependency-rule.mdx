@@ -1,0 +1,122 @@
+---
+title: Dependency Rule
+description: How NEKTE enforces the hexagonal dependency rule
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## The Rule
+
+> Dependencies point inward. Nothing in an inner layer knows about an outer layer.
+
+```
+Adapters → Application → Ports → Domain
+   ↑           ↑           ↑        ↑
+ outer       middle      inner    innermost
+```
+
+In NEKTE's monorepo this translates to a strict package dependency graph:
+
+```
+@nekte/core    ← zero external dependencies (domain + ports)
+@nekte/client  ← depends only on core
+@nekte/server  ← depends only on core
+@nekte/bridge  ← depends on core + server
+@nekte/cli     ← depends on core + client
+```
+
+## What This Means in Practice
+
+### Domain Layer (`@nekte/core`)
+
+**Imports nothing from other NEKTE packages.** Contains:
+- Types, schemas, hash functions, budget resolution
+- SIEVE eviction and GDSF policies (pure algorithms)
+- SSE event types and encoding
+- TaskEntry aggregate root with state machine
+- Filtering strategies (keyword, semantic, hybrid)
+
+```typescript
+// VALID: core imports only its own modules and standard libraries
+import { canonicalize } from './hash.js';
+import type { TokenBudget } from './types.js';
+```
+
+```typescript
+// INVALID: core must never import from client or server
+import { NekteClient } from '@nekte/client';  // VIOLATION
+import { NekteServer } from '@nekte/server';   // VIOLATION
+```
+
+### Application Layer (`@nekte/client`, `@nekte/server`)
+
+**Imports from core only.** Orchestrates domain objects and calls ports.
+
+```typescript
+// server/src/server.ts — valid imports
+import { resolveBudget, createLogger } from '@nekte/core';      // domain
+import type { CapabilityFilterStrategy } from '@nekte/core';     // port
+import { CapabilityRegistry } from './capability.js';            // domain service
+```
+
+### Adapter Layer (transports, auth, cache stores)
+
+**Imports from core and its own package's application layer.**
+
+```typescript
+// server/src/http-transport.ts — valid imports
+import type { NekteServer } from './server.js';    // application
+import type { SseStream } from './sse-stream.js';  // adapter peer
+import { createServer } from 'node:http';          // external library
+```
+
+## How It's Enforced
+
+### 1. Package Boundaries
+
+`pnpm workspace:*` references make dependencies explicit. `@nekte/core` has no workspace dependencies in its `package.json`:
+
+```json
+// packages/core/package.json
+{
+  "dependencies": {
+    "msgpackr": "^1.11",
+    "zod": "^3.24"
+  }
+  // No @nekte/* dependencies
+}
+```
+
+### 2. Build Order
+
+`pnpm build` respects the dependency graph: `core` builds first, then `client` and `server` in parallel, then `bridge` and `cli`.
+
+### 3. Import Structure
+
+Each package's `index.ts` re-exports only its public API. Internal modules use relative `.js` imports and are not accessible to consumers.
+
+## Common Violations and How to Avoid Them
+
+| Violation | Fix |
+|---|---|
+| Server imports a client class | Extract shared type to core |
+| Core imports a transport | Define a port interface in core, implement in the adapter |
+| Domain logic depends on `fetch` | Create a `Transport` port, inject the HTTP adapter |
+| Cache policy depends on `Map` | Keep the policy pure (input/output arrays), wrap `Map` in an adapter |
+
+<Aside type="tip">
+The dependency rule is what makes cross-SDK conformance possible. Because the domain layer has no I/O, it can be ported to Python or Go without changing its logic -- only the adapters need rewriting.
+</Aside>
+
+## Testing Implications
+
+The dependency rule creates a natural testing pyramid:
+
+| Layer | Test Type | I/O | Speed |
+|---|---|---|---|
+| Domain (`@nekte/core`) | Unit tests | None | ~1ms/test |
+| Application | Unit tests with mocked ports | None | ~5ms/test |
+| Adapters | Integration tests | Real HTTP/gRPC | ~50ms/test |
+| Full stack | E2E tests | Real server + client | ~100ms/test |
+
+Domain tests (85 in core) run without any mocking because the domain layer has no I/O dependencies. This is the primary benefit of the dependency rule.
