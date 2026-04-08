@@ -24,6 +24,7 @@
     "benchmark:real": "tsx benchmarks/real-mcp/index.ts",
     "benchmark:market": "tsx benchmarks/market-mcps/index.ts",
     "benchmark:old": "tsx benchmarks/token-comparison.ts",
+    "benchmark:runtime": "tsx benchmarks/runtime-perf.ts",
     "typecheck": "pnpm -r typecheck",
     "changeset": "changeset",
     "version": "changeset version",

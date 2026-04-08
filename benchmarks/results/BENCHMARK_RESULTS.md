@@ -1,6 +1,6 @@
 # Market MCP Benchmark Results
 
-> Generated: 2026-04-08T07:18:26.288Z
+> Generated: 2026-04-08T11:26:32.163Z
 > Tokenizer: tiktoken/cl100k_base
 > Runs per scenario: 5 (+ 1 warm-up)
 
@@ -25,11 +25,11 @@ Measures schema + response tokens per turn, without cumulative context history.
 
 | Protocol | Mean | Median | P95 | StdDev | Savings |
 |----------|-----:|-------:|----:|-------:|--------:|
-| MCP Native | 78.5K | 78.5K | 78.6K | 33.27 | 0% |
-| MCP Progressive | 39.2K | 39.2K | 39.2K | 33.27 | 50% |
-| mcp2cli | 30.5K | 30.5K | 30.5K | 33.27 | 61% |
-| NEKTE | 11.7K | 11.7K | 11.8K | 24.04 | 85% |
-| NEKTE+Cache | 11.7K | 11.7K | 11.7K | 24.04 | 85% |
+| MCP Native | 78.5K | 78.5K | 78.6K | 26.2 | 0% |
+| MCP Progressive | 39.2K | 39.2K | 39.2K | 26.2 | 50% |
+| mcp2cli | 30.5K | 30.5K | 30.6K | 26.2 | 61% |
+| NEKTE | 11.7K | 11.8K | 11.8K | 23.98 | 85% |
+| NEKTE+Cache | 11.7K | 11.7K | 11.7K | 23.98 | 85% |
 
 ### Research Assistant
 
@@ -39,11 +39,11 @@ Measures schema + response tokens per turn, without cumulative context history.
 
 | Protocol | Mean | Median | P95 | StdDev | Savings |
 |----------|-----:|-------:|----:|-------:|--------:|
-| MCP Native | 19.9K | 19.9K | 20.0K | 38.39 | 0% |
-| MCP Progressive | 16.8K | 16.8K | 16.9K | 38.39 | 15% |
-| mcp2cli | 16.3K | 16.3K | 16.4K | 38.39 | 18% |
-| NEKTE | 4.4K | 4.4K | 4.5K | 17.83 | 78% |
-| NEKTE+Cache | 4.4K | 4.4K | 4.4K | 17.83 | 78% |
+| MCP Native | 19.9K | 19.9K | 20.0K | 33.89 | 0% |
+| MCP Progressive | 16.9K | 16.9K | 16.9K | 33.89 | 15% |
+| mcp2cli | 16.4K | 16.3K | 16.4K | 33.89 | 18% |
+| NEKTE | 4.5K | 4.5K | 4.5K | 21.25 | 78% |
+| NEKTE+Cache | 4.4K | 4.5K | 4.5K | 21.25 | 78% |
 
 ### Data Analysis
 
@@ -53,11 +53,11 @@ Measures schema + response tokens per turn, without cumulative context history.
 
 | Protocol | Mean | Median | P95 | StdDev | Savings |
 |----------|-----:|-------:|----:|-------:|--------:|
-| MCP Native | 20.4K | 20.4K | 20.4K | 8.89 | 0% |
-| MCP Progressive | 9.9K | 9.9K | 9.9K | 8.89 | 51% |
-| mcp2cli | 7.2K | 7.2K | 7.2K | 8.89 | 65% |
-| NEKTE | 2.7K | 2.7K | 2.7K | 2.86 | 87% |
-| NEKTE+Cache | 2.7K | 2.7K | 2.7K | 2.86 | 87% |
+| MCP Native | 20.4K | 20.4K | 20.4K | 5.95 | 0% |
+| MCP Progressive | 9.9K | 9.9K | 10.0K | 5.95 | 51% |
+| mcp2cli | 7.2K | 7.2K | 7.2K | 5.95 | 65% |
+| NEKTE | 2.7K | 2.7K | 2.7K | 3.38 | 87% |
+| NEKTE+Cache | 2.7K | 2.7K | 2.7K | 3.38 | 87% |
 
 ### Multi-MCP Agent
 
@@ -67,11 +67,11 @@ Measures schema + response tokens per turn, without cumulative context history.
 
 | Protocol | Mean | Median | P95 | StdDev | Savings |
 |----------|-----:|-------:|----:|-------:|--------:|
-| MCP Native | 110.7K | 110.7K | 110.7K | 27.77 | 0% |
-| MCP Progressive | 54.3K | 54.3K | 54.3K | 27.77 | 51% |
-| mcp2cli | 42.3K | 42.3K | 42.3K | 27.77 | 62% |
-| NEKTE | 10.8K | 10.8K | 10.8K | 9.5 | 90% |
-| NEKTE+Cache | 10.7K | 10.7K | 10.7K | 9.5 | 90% |
+| MCP Native | 110.7K | 110.7K | 110.7K | 6.2 | 0% |
+| MCP Progressive | 54.3K | 54.3K | 54.4K | 6.2 | 51% |
+| mcp2cli | 42.3K | 42.3K | 42.3K | 6.2 | 62% |
+| NEKTE | 10.8K | 10.8K | 10.8K | 10.01 | 90% |
+| NEKTE+Cache | 10.7K | 10.7K | 10.7K | 10.01 | 90% |
 
 ## Part 2: Schema Weight Scaling Study
 
@@ -82,7 +82,7 @@ How context window cost grows as you connect more MCP servers (fixed 10-turn wor
 | 1 | 1 | 6.6K | 6.3K | 1.4K | 1.4K | 79% |
 | 2 | 3 | 11.0K | 7.9K | 2.4K | 2.4K | 78% |
 | 3 | 4 | 17.6K | 12.6K | 3.6K | 3.6K | 79% |
-| 4 | 17 | 29.0K | 11.0K | 4.5K | 4.5K | 84% |
+| 4 | 17 | 29.0K | 11.0K | 4.5K | 4.4K | 85% |
 | 5 | 43 | 68.0K | 22.6K | 7.4K | 7.3K | 89% |
 
 ## Part 3: Realistic Conversation Model
@@ -96,7 +96,7 @@ and dynamic budget pressure (compresses under context pressure).
 | Scenario | Tools | Turns | Naive Savings | Realistic Savings | Delta |
 |----------|------:|------:|--------------:|------------------:|------:|
 | DevOps Triage | 39 | 12 | 85% | 57% | -28pp |
-| Research Assistant | 3 | 8 | 78% | 52% | -26pp |
+| Research Assistant | 3 | 8 | 77% | 52% | -25pp |
 | Data Analysis | 14 | 10 | 87% | 42% | -45pp |
 | Multi-MCP Agent | 43 | 15 | 90% | 69% | -21pp |
 
@@ -104,10 +104,10 @@ and dynamic budget pressure (compresses under context pressure).
 
 | Scenario | MCP Native | MCP Prog. | mcp2cli | NEKTE | NEKTE Savings |
 |----------|----------:|---------:|--------:|------:|--------------:|
-| DevOps Triage | 336.9K | 297.2K | 288.8K | 146.0K | 57% |
-| Research Assistant | 103.7K | 100.5K | 99.8K | 50.1K | 52% |
-| Data Analysis | 92.2K | 81.8K | 79.0K | 53.6K | 42% |
-| Multi-MCP Agent | 488.5K | 432.0K | 420.1K | 150.5K | 69% |
+| DevOps Triage | 336.5K | 297.1K | 288.6K | 145.9K | 57% |
+| Research Assistant | 103.9K | 100.6K | 100.2K | 50.3K | 52% |
+| Data Analysis | 92.2K | 81.7K | 79.0K | 53.6K | 42% |
+| Multi-MCP Agent | 489.0K | 431.7K | 420.6K | 150.5K | 69% |
 
 ### Cost Decomposition (where do tokens go?)
 
@@ -136,22 +136,22 @@ Four strategies to compress historical context and improve NEKTE's real-conversa
 | Protocol/Strategy | Total Tokens | Savings vs Native | Improvement vs Base |
 |-------------------|------------:|-----------------:|-------------------:|
 | MCP Native | 336.8K | — | — |
-| NEKTE (base) | 145.8K | 57% | — |
+| NEKTE (base) | 145.7K | 57% | — |
 | History Decay | 76.1K | 77% | +20pp |
-| Sliding Window | 89.3K | 73% | +16pp |
-| Delta Encoding | 145.9K | 57% | +0pp |
-| Combined (all) | 76.0K | 77% | +20pp |
+| Sliding Window | 89.1K | 74% | +17pp |
+| Delta Encoding | 146.2K | 57% | +0pp |
+| Combined (all) | 76.1K | 77% | +20pp |
 
 ### Research Assistant (8 turns, 3 tools)
 
 | Protocol/Strategy | Total Tokens | Savings vs Native | Improvement vs Base |
 |-------------------|------------:|-----------------:|-------------------:|
 | MCP Native | 103.6K | — | — |
-| NEKTE (base) | 50.0K | 52% | — |
-| History Decay | 36.0K | 65% | +13pp |
+| NEKTE (base) | 50.1K | 52% | — |
+| History Decay | 35.9K | 65% | +13pp |
 | Sliding Window | 44.0K | 57% | +5pp |
 | Delta Encoding | 43.9K | 58% | +6pp |
-| Combined (all) | 33.0K | 68% | +16pp |
+| Combined (all) | 32.9K | 68% | +16pp |
 
 ### Data Analysis (10 turns, 14 tools)
 
@@ -160,7 +160,7 @@ Four strategies to compress historical context and improve NEKTE's real-conversa
 | MCP Native | 92.2K | — | — |
 | NEKTE (base) | 53.6K | 42% | — |
 | History Decay | 42.8K | 54% | +12pp |
-| Sliding Window | 41.7K | 55% | +13pp |
+| Sliding Window | 41.6K | 55% | +13pp |
 | Delta Encoding | 46.4K | 50% | +8pp |
 | Combined (all) | 40.6K | 56% | +14pp |
 
@@ -171,7 +171,7 @@ Four strategies to compress historical context and improve NEKTE's real-conversa
 | MCP Native | 489.0K | — | — |
 | NEKTE (base) | 150.5K | 69% | — |
 | History Decay | 96.8K | 80% | +11pp |
-| Sliding Window | 95.3K | 81% | +12pp |
+| Sliding Window | 95.2K | 81% | +12pp |
 | Delta Encoding | 148.9K | 70% | +1pp |
 | Combined (all) | 96.2K | 80% | +11pp |
 
