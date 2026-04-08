@@ -7,6 +7,7 @@ dist/
 coverage/
 *.tgz
 .pnpm-store/
+.internal/
 __pycache__/
 *.pyc
 .venv/

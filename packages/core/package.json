@@ -27,5 +27,11 @@
     "typescript": "^5.7.0",
     "vitest": "^3.0.0"
   },
+  "files": [
+    "dist",
+    "!dist/__tests__",
+    "!dist/**/*.map",
+    "proto"
+  ],
   "license": "MIT"
 }

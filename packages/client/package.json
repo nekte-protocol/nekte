@@ -37,5 +37,10 @@
     "@grpc/grpc-js": { "optional": true },
     "@grpc/proto-loader": { "optional": true }
   },
+  "files": [
+    "dist",
+    "!dist/__tests__",
+    "!dist/**/*.map"
+  ],
   "license": "MIT"
 }

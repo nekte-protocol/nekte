@@ -32,5 +32,10 @@
     "vitest": "^3.0.0",
     "@types/node": "^22.0.0"
   },
+  "files": [
+    "dist",
+    "!dist/__tests__",
+    "!dist/**/*.map"
+  ],
   "license": "MIT"
 }
