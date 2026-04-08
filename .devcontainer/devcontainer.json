@@ -2,6 +2,9 @@
   "name": "NEKTE Protocol",
   "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
   "runArgs": ["--name", "nekte-dev"],
+  "mounts": [
+    "source=${localEnv:HOME}/.claude,target=/home/node/.claude,type=bind,consistency=cached"
+  ],
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
       "version": "22",
@@ -19,7 +22,8 @@
       "extensions": [
         "dbaeumer.vscode-eslint",
         "esbenp.prettier-vscode",
-        "vitest.explorer"
+        "vitest.explorer",
+        "anthropic.claude-code"
       ],
       "settings": {
         "editor.defaultFormatter": "esbenp.prettier-vscode",
