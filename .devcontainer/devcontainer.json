@@ -1,13 +1,14 @@
 {
   "name": "NEKTE Protocol",
   "image": "mcr.microsoft.com/devcontainers/typescript-node:22",
+  "runArgs": ["--name", "nekte-dev"],
   "features": {
     "ghcr.io/devcontainers/features/node:1": {
       "version": "22",
       "pnpmVersion": "9"
     }
   },
-  "postCreateCommand": "pnpm install && pnpm build",
+  "postCreateCommand": "pnpm install --force && pnpm build",
   "forwardPorts": [3100, 4001],
   "portsAttributes": {
     "3100": { "label": "NEKTE Bridge" },
