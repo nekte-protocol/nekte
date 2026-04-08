@@ -22,6 +22,7 @@
     "demo": "tsx demo/two-agents/run.ts",
     "benchmark": "tsx benchmarks/src/cli.ts",
     "benchmark:real": "tsx benchmarks/real-mcp/index.ts",
+    "benchmark:market": "tsx benchmarks/market-mcps/index.ts",
     "benchmark:old": "tsx benchmarks/token-comparison.ts",
     "typecheck": "pnpm -r typecheck",
     "changeset": "changeset",
