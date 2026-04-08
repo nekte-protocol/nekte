@@ -2,7 +2,8 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 
 export default defineConfig({
-  site: 'https://nekte.dev',
+  site: 'https://nekte-protocol.github.io',
+  base: '/nekte',
   integrations: [
     starlight({
       title: 'NEKTE Protocol',
