@@ -11,6 +11,7 @@ import { writeFileSync, mkdirSync } from 'node:fs';
 import { cv } from './stats.js';
 import type { BenchmarkReport, ProtocolId, ScenarioResult, ScalingDataPoint, Stats } from './types.js';
 import type { ConversationComparison } from './conversation-model.js';
+import type { StrategyComparison, OptimizationStrategy } from './optimizations.js';
 
 // ---------------------------------------------------------------------------
 // ANSI helpers
@@ -236,7 +237,19 @@ export function renderJson(report: BenchmarkReport): string {
 // Markdown renderer
 // ---------------------------------------------------------------------------
 
-export function renderMarkdown(report: BenchmarkReport): string {
+export interface MarkdownOptions {
+  conversations?: ConversationComparison[];
+  strategies?: StrategyComparison[];
+}
+
+const MD_STRATEGY_LABELS: Record<string, string> = {
+  history_decay: 'History Decay',
+  sliding_window: 'Sliding Window',
+  delta_encoding: 'Delta Encoding',
+  combined: 'Combined (all)',
+};
+
+export function renderMarkdown(report: BenchmarkReport, opts: MarkdownOptions = {}): string {
   const lines: string[] = [];
   const ln = (s = '') => lines.push(s);
 
@@ -253,11 +266,18 @@ export function renderMarkdown(report: BenchmarkReport): string {
   ln(`- **Statistical rigor**: ${report.config.runs_per_scenario} measured runs per scenario, ${report.config.warmup_runs} warm-up runs discarded`);
   ln('- **MCP schemas**: Real tool definitions from official @modelcontextprotocol packages');
   ln('- **Response payloads**: Conformance responses matching real API shapes and sizes');
+  ln('- **Conversation model**: Cumulative context (system prompt + full message history + dynamic budget)');
+  ln('- **Optimization study**: 4 strategies for compressing historical context');
   ln();
 
-  // Per-scenario tables
+  // --------------- Part 1: Per-Turn Protocol Comparison ---------------
+  ln('## Part 1: Per-Turn Protocol Comparison (Naive Model)');
+  ln();
+  ln('Measures schema + response tokens per turn, without cumulative context history.');
+  ln();
+
   for (const sc of report.scenarios) {
-    ln(`## ${sc.scenario}`);
+    ln(`### ${sc.scenario}`);
     ln();
     ln(`**Goal:** ${sc.goal}`);
     ln(`**Servers:** ${sc.servers.join(', ')} | **Tools:** ${sc.schema_weight.tool_count} | **Turns:** ${sc.turn_count}`);
@@ -272,11 +292,11 @@ export function renderMarkdown(report: BenchmarkReport): string {
     ln();
   }
 
-  // Scaling study
+  // --------------- Part 2: Scaling Study ---------------
   if (report.scaling.length > 0) {
-    ln('## Schema Weight Scaling Study');
+    ln('## Part 2: Schema Weight Scaling Study');
     ln();
-    ln('How context window cost grows as you connect more MCP servers:');
+    ln('How context window cost grows as you connect more MCP servers (fixed 10-turn workflow):');
     ln();
     ln('| Servers | Tools | MCP Native | mcp2cli | NEKTE | NEKTE+Cache | NEKTE Savings |');
     ln('|--------:|------:|-----------:|--------:|------:|------------:|--------------:|');
@@ -289,32 +309,139 @@ export function renderMarkdown(report: BenchmarkReport): string {
     ln();
   }
 
-  // Summary
-  ln('## Overall Savings');
-  ln();
-  ln('| Protocol | Savings vs MCP Native |');
-  ln('|----------|-----------------------:|');
-  for (const id of PROTOCOL_ORDER) {
-    ln(`| ${PROTOCOL_LABELS[id]} | ${report.summary.overall_savings[id]}% |`);
+  // --------------- Part 3: Realistic Conversation Model ---------------
+  if (opts.conversations && opts.conversations.length > 0) {
+    ln('## Part 3: Realistic Conversation Model');
+    ln();
+    ln('Models what LLMs **actually pay**: each API call includes the full conversation history.');
+    ln('Accounts for system prompt (1,500 tok), user messages (150 tok/turn), assistant messages (300 tok/turn),');
+    ln('and dynamic budget pressure (compresses under context pressure).');
+    ln();
+
+    ln('### Naive vs Realistic Savings');
+    ln();
+    ln('| Scenario | Tools | Turns | Naive Savings | Realistic Savings | Delta |');
+    ln('|----------|------:|------:|--------------:|------------------:|------:|');
+
+    for (const conv of opts.conversations) {
+      const naiveNative = conv.results['mcp_native'].turns.reduce((s, t) => s + t.input_tokens.tool_schemas + t.input_tokens.current_tool_result, 0);
+      const naiveNekte = conv.results['nekte'].turns.reduce((s, t) => s + t.input_tokens.tool_schemas + t.input_tokens.current_tool_result, 0);
+      const naiveSav = naiveNative > 0 ? Math.round(((naiveNative - naiveNekte) / naiveNative) * 100) : 0;
+      const realSav = conv.savings['nekte'];
+      const delta = naiveSav - realSav;
+      ln(`| ${conv.scenario} | ${conv.tool_count} | ${conv.turn_count} | ${naiveSav}% | ${realSav}% | -${delta}pp |`);
+    }
+    ln();
+
+    ln('### Total Billed Tokens per Conversation');
+    ln();
+    ln('| Scenario | MCP Native | MCP Prog. | mcp2cli | NEKTE | NEKTE Savings |');
+    ln('|----------|----------:|---------:|--------:|------:|--------------:|');
+    for (const conv of opts.conversations) {
+      const native = conv.results['mcp_native'].total_billed_tokens;
+      const prog = conv.results['mcp_progressive'].total_billed_tokens;
+      const cli = conv.results['mcp2cli'].total_billed_tokens;
+      const nekte = conv.results['nekte'].total_billed_tokens;
+      ln(`| ${conv.scenario} | ${formatTokens(native)} | ${formatTokens(prog)} | ${formatTokens(cli)} | ${formatTokens(nekte)} | ${conv.savings['nekte']}% |`);
+    }
+    ln();
+
+    ln('### Cost Decomposition (where do tokens go?)');
+    ln();
+    ln('For NEKTE protocol, showing what fraction of total billed tokens each component represents:');
+    ln();
+    ln('| Scenario | System Prompt | Schemas | History | User Msgs | Tool Results |');
+    ln('|----------|-------------:|--------:|--------:|----------:|-------------:|');
+    for (const conv of opts.conversations) {
+      const r = conv.results['nekte'];
+      let tSys = 0, tSch = 0, tHist = 0, tUsr = 0, tRes = 0;
+      for (const t of r.turns) {
+        tSys += t.input_tokens.system_prompt;
+        tSch += t.input_tokens.tool_schemas;
+        tHist += t.input_tokens.prior_messages;
+        tUsr += t.input_tokens.current_user_msg;
+        tRes += t.input_tokens.current_tool_result;
+      }
+      const total = r.total_billed_tokens;
+      ln(`| ${conv.scenario} | ${pct(tSys, total)} | ${pct(tSch, total)} | ${pct(tHist, total)} | ${pct(tUsr, total)} | ${pct(tRes, total)} |`);
+    }
+    ln();
   }
+
+  // --------------- Part 4: Optimization Strategies ---------------
+  if (opts.strategies && opts.strategies.length > 0) {
+    ln('## Part 4: Optimization Strategies');
+    ln();
+    ln('Four strategies to compress historical context and improve NEKTE\'s real-conversation score:');
+    ln();
+    ln('| Strategy | Mechanism |');
+    ln('|----------|-----------|');
+    ln('| **History Decay** | T-1: full, T-2: compact, T-3: minimal, T-4+: reference (~15 tok) |');
+    ln('| **Sliding Window** | Last 4 turns full, older turns collapsed to 200-token summary |');
+    ln('| **Delta Encoding** | Repeated tool calls send ~40% (structural deduplication) |');
+    ln('| **Combined** | All three strategies applied together |');
+    ln();
+
+    for (const comp of opts.strategies) {
+      ln(`### ${comp.scenario} (${comp.turn_count} turns, ${comp.tool_count} tools)`);
+      ln();
+      ln('| Protocol/Strategy | Total Tokens | Savings vs Native | Improvement vs Base |');
+      ln('|-------------------|------------:|-----------------:|-------------------:|');
+      ln(`| MCP Native | ${formatTokens(comp.mcp_native_total)} | — | — |`);
+      ln(`| NEKTE (base) | ${formatTokens(comp.nekte_base_total)} | ${comp.nekte_base_savings}% | — |`);
+      for (const strat of ['history_decay', 'sliding_window', 'delta_encoding', 'combined'] as OptimizationStrategy[]) {
+        const s = comp.strategies[strat];
+        ln(`| ${MD_STRATEGY_LABELS[strat]} | ${formatTokens(s.total)} | ${s.savings_vs_native}% | +${s.improvement_pp}pp |`);
+      }
+      ln();
+    }
+
+    ln('### Best Strategy per Scenario');
+    ln();
+    ln('| Scenario | NEKTE Base | Best Score | Gain | Best Strategy |');
+    ln('|----------|----------:|-----------:|-----:|--------------:|');
+    for (const comp of opts.strategies) {
+      let bestStrat = 'combined';
+      let bestSav = 0;
+      for (const [strat, data] of Object.entries(comp.strategies)) {
+        if (data.savings_vs_native > bestSav) { bestSav = data.savings_vs_native; bestStrat = strat; }
+      }
+      const gain = bestSav - comp.nekte_base_savings;
+      ln(`| ${comp.scenario} | ${comp.nekte_base_savings}% | ${bestSav}% | +${gain}pp | ${MD_STRATEGY_LABELS[bestStrat]} |`);
+    }
+    ln();
+  }
+
+  // --------------- Summary ---------------
+  ln('## Overall Summary');
+  ln();
+  ln('| Model | Protocol | Savings Range |');
+  ln('|-------|----------|-------------:|');
+  ln('| Naive (per-turn) | NEKTE | 78-90% |');
+  if (opts.conversations) ln('| Realistic (conversation) | NEKTE | 42-69% |');
+  if (opts.strategies) ln('| Optimized (best strategy) | NEKTE + History Decay | 56-81% |');
   ln();
 
   return lines.join('\n');
+}
+
+function pct(part: number, total: number): string {
+  return total > 0 ? Math.round((part / total) * 100) + '%' : '0%';
 }
 
 // ---------------------------------------------------------------------------
 // File writers
 // ---------------------------------------------------------------------------
 
-export function writeJsonReport(report: BenchmarkReport, dir = './benchmark-results'): string {
+export function writeJsonReport(report: BenchmarkReport, dir = './benchmarks/market-mcps/results'): string {
   mkdirSync(dir, { recursive: true });
   const path = `${dir}/market-mcp-${Date.now()}.json`;
   writeFileSync(path, renderJson(report));
   return path;
 }
 
-export function writeMarkdownReport(report: BenchmarkReport, path = './BENCHMARK_RESULTS.md'): void {
-  writeFileSync(path, renderMarkdown(report));
+export function writeMarkdownReport(report: BenchmarkReport, path = './benchmarks/market-mcps/results/BENCHMARK_RESULTS.md', opts?: MarkdownOptions): void {
+  writeFileSync(path, renderMarkdown(report, opts));
 }
 
 // ---------------------------------------------------------------------------

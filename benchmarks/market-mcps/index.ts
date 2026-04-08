@@ -22,6 +22,7 @@ import { ALL_SCENARIOS } from './scenarios/index.js';
 import { runAllScenarios, type RunnerConfig } from './runner.js';
 import { runScalingStudy } from './scaling/schema-weight-study.js';
 import { compareProtocols } from './conversation-model.js';
+import { compareStrategies, renderStrategyComparison } from './optimizations.js';
 import {
   renderTerminal,
   renderConversationModel,
@@ -107,18 +108,31 @@ async function main() {
     console.log(`JSON report written to ${path}`);
   }
 
-  if (markdownOutput) {
-    writeMarkdownReport(report as Parameters<typeof writeMarkdownReport>[0]);
-    console.log('Markdown report written to BENCHMARK_RESULTS.md');
-  }
-
   if (!jsonOutput || verbose) {
     renderTerminal(report as Parameters<typeof renderTerminal>[0], verbose);
   }
 
-  // Conversation model output
+  // Conversation model output + optimization strategies
+  let strategyComparisons: ReturnType<typeof compareStrategies>[] = [];
   if (conversationComparisons.length > 0) {
     renderConversationModel(conversationComparisons);
+
+    console.log('Running optimization strategies...\n');
+    const scenarios = scenarioFilter
+      ? ALL_SCENARIOS.filter((s) => s.name.toLowerCase().includes(scenarioFilter.toLowerCase()))
+      : ALL_SCENARIOS;
+    strategyComparisons = scenarios.map((s) => compareStrategies(s));
+    renderStrategyComparison(strategyComparisons);
+  }
+
+  // Write markdown with all sections (conversation + strategies included)
+  if (markdownOutput) {
+    writeMarkdownReport(
+      report as Parameters<typeof writeMarkdownReport>[0],
+      undefined,
+      { conversations: conversationComparisons, strategies: strategyComparisons },
+    );
+    console.log('Markdown report written to benchmarks/market-mcps/results/BENCHMARK_RESULTS.md');
   }
 
   console.log(`\nCompleted in ${elapsed}s\n`);
