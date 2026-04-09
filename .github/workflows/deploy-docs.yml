@@ -1,55 +1,15 @@
 name: Deploy Docs
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - 'website/**'
-      - 'docs/**'
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
+# Docs are deployed from nekte-protocol/nekte-protocol.github.io
+# which clones this repo and runs its own deploy workflow.
+# Trigger manually from: https://github.com/nekte-protocol/nekte-protocol.github.io/actions
+# Auto-deploy runs daily at 4am UTC.
 
 jobs:
-  build:
+  noop:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - run: pnpm install --frozen-lockfile
-
-      - run: pnpm build
-
-      - name: Build website
-        working-directory: website
-        run: pnpm build
-
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: website/dist
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - run: echo "Deploy is managed by nekte-protocol/nekte-protocol.github.io"
